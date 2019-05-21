@@ -9,6 +9,7 @@ $ stack new ha
 ```
 - 作成されたフォルダ ha の中へ移動
 - package.yaml と stack.yaml を ここのファイルと置き換へる
+- ここの imgフォルダを haフォルダ内に配置
 - appフォルダ内 の Main.hs を ここのファイルと置き換へる
 ```
 $ stack build
