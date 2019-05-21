@@ -310,12 +310,12 @@ evalRatio st =
 osdToNum :: String -> (Int,Int)
 osdToNum wd =
   let (_,numTxt) = foldl (\(fl,acc) x ->
-        if x=='た' then (True,acc++" ")
-                   else if x=='そ' then (False,acc++" ")
+        if x=='と' then (True,acc++" ")
+                   else if x=='す' then (False,acc++" ")
                                    else if fl then (True,acc++[x]) else (False,acc)) (True,[]) wd
       (_,denTxt) = foldl (\(fl,acc) x ->
-        if x=='た' then (False,acc++" ")
-                   else if x=='そ' then (True,acc++" ")
+        if x=='と' then (False,acc++" ")
+                   else if x=='す' then (True,acc++" ")
                                    else if fl then (True,acc++[x]) else (False,acc)) (False,[]) wd
       num = foldl (\acc x -> acc * osdToInt x) 1 (words numTxt)
       den = foldl (\acc x -> acc * osdToInt x) 1 (words denTxt)
@@ -352,7 +352,7 @@ numToOsd str =
 
 numAndOsd :: [(Char,Char)]
 numAndOsd = [('1','ひ'),('2','ふ'),('3','み'),('4','よ'),('5','ゐ'),('6','む'),
-             ('7','な'),('8','や'),('9','こ'),('0','ろ'),('-','ん'),('*','た'),('%','そ')]
+             ('7','な'),('8','や'),('9','こ'),('0','ろ'),('-','ん'),('*','と'),('%','す')]
 
 
   
