@@ -3,6 +3,7 @@ module Main where
 import Graphics.Gloss 
 import Graphics.Gloss.Juicy
 import Graphics.Gloss.Interface.IO.Game
+import Data.Ratio
 
 startX, startY, bottomY, leftX, shiftX, shiftY, fScale :: Float 
 startX = 250 
@@ -301,36 +302,57 @@ getHa st =
               else (False,snd acc)
                             ) (False,[]) wds 
 
-evalInt :: String -> Int
-evalInt st =
+evalRatio :: String -> Ratio Int 
+evalRatio st =
   let wds = words st
-   in foldl (\acc x -> acc + osdToInt x) 0 wds
-  where osdToInt wd =
-          read $ map (\c -> case c of
-                 'ひ' -> '1'; 'ふ' -> '2'; 'み' -> '3'; 'よ' -> '4'; 'ゐ' -> '5'
-                 'む' -> '6'; 'な' -> '7'; 'や' -> '8'; 'こ' -> '9'; 'ろ' -> '0'
-                 'ん' -> '-'; _ -> ' '
-                     ) wd 
+   in foldl (\acc x -> acc + (fst (osdToNum x))%(snd (osdToNum x))) 0 wds
+
+osdToNum :: String -> (Int,Int)
+osdToNum wd =
+  let (_,numTxt) = foldl (\(fl,acc) x ->
+        if x=='た' then (True,acc++" ")
+                   else if x=='そ' then (False,acc++" ")
+                                   else if fl then (True,acc++[x]) else (False,acc)) (True,[]) wd
+      (_,denTxt) = foldl (\(fl,acc) x ->
+        if x=='た' then (False,acc++" ")
+                   else if x=='そ' then (True,acc++" ")
+                                   else if fl then (True,acc++[x]) else (False,acc)) (False,[]) wd
+      num = foldl (\acc x -> acc * osdToInt x) 1 (words numTxt)
+      den = foldl (\acc x -> acc * osdToInt x) 1 (words denTxt)
+   in (num,den) 
+
+osdToInt :: String -> Int
+osdToInt wd =
+  read $ map (\c -> foldl (\acc s ->
+                if (snd s==c) then (fst s) else acc) ' ' numAndOsd 
+             ) wd 
                             
 eval :: String -> String
-eval st =
-  let tgt = getHa st
+eval str =
+  let tgt = getHa str
       tp = typeHa tgt
-   in case tp of
-        "int" -> intToOsd $ show (evalInt tgt)
-        _     -> tgt
+   in if (tgt==[])
+        then " "
+        else case tp of
+          "ratio" -> let rat = show (evalRatio tgt)
+                      in if (last$words rat)=="1" then numToOsd$head$words rat
+                                                  else numToOsd$concat$words rat
+          _       -> tgt
 
 typeHa :: String -> String
-typeHa _ = "int"
+typeHa str
+  | foldl (\acc x -> acc && (elem x (map snd numAndOsd))) True (head$words str) = "ratio"
+  | otherwise = "txt"
 
-intToOsd :: String -> String
-intToOsd st =
-  map (\ch -> case ch of
-                '1' -> 'ひ'; '2' -> 'ふ'; '3' -> 'み'; '4' -> 'よ'; '5' -> 'ゐ'
-                '6' -> 'む'; '7' -> 'な'; '8' -> 'や'; '9' -> 'こ'; '0' -> 'ろ'
-                '-' -> 'ん'; _ -> ' '
-      ) st
+numToOsd :: String -> String
+numToOsd str =
+  map (\c -> foldl (\acc s ->
+              if (fst s==c) then (snd s) else acc) ' ' numAndOsd 
+      ) str 
 
+numAndOsd :: [(Char,Char)]
+numAndOsd = [('1','ひ'),('2','ふ'),('3','み'),('4','よ'),('5','ゐ'),('6','む'),
+             ('7','な'),('8','や'),('9','こ'),('0','ろ'),('-','ん'),('*','た'),('%','そ')]
 
 
   
