@@ -256,7 +256,13 @@ evalTxt st =
         then
           let ln = txs !! lnNum
               ltNum = fst txPos
-              newLn = (take ltNum ln) 
+              newLn = (take ltNum ln)
+                ++(if (elem 'た' (drop ltNum ln))
+                    then snd $ foldl (\acc x -> if (fst acc && x=='た')
+                           then (False,snd acc++[x]) else if fst acc
+                              then (True,snd acc++[x]) else (False,snd acc)
+                               ) (True,[]) (drop ltNum ln)
+                    else [])
            in unlines $ (take lnNum txs)++[newLn]
         else
            _tx st 
@@ -296,7 +302,7 @@ getHa :: String -> String
 getHa st =
   let wds = words st
    in unwords $ snd $ foldr (\x acc ->
-     if snd acc==[] && x=="は"
+     if snd acc==[] && x=="た"
        then (True,[]) else if fst acc==True
               then if x=="は" then (False,snd acc) else (True,x:snd acc)
               else (False,snd acc)
