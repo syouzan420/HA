@@ -266,7 +266,7 @@ evalTxt st =
            in unlines $ (take lnNum txs)++[newLn]
         else
            _tx st 
-   in (foldl (\acc x -> addTxt x acc) st (eval newTx)) {_md = 0}
+   in (foldl (\acc x -> addTxt x acc) st (snd $ eval newTx)) {_md = 0}
 
 curToTxt :: State -> ((Int,(Float,Float)),(Int,Int))
 curToTxt st =
@@ -333,21 +333,38 @@ osdToInt wd =
                 if (snd s==c) then (fst s) else acc) ' ' numAndOsd 
              ) wd 
                             
-eval :: String -> String
+eval :: String -> (String, String)
 eval str =
   let tgt = getHa str
-      tp = typeHa tgt
+      wds = words tgt
    in if (tgt==[])
-        then " "
-        else case tp of
-          "ratio" -> let rat = show (evalRatio tgt)
-                      in if (last$words rat)=="1" then numToOsd$head$words rat
-                                                  else numToOsd$concat$words rat
-          _       -> tgt
+        then ([]," ")
+        else let result =
+                  foldl (\acc x -> 
+                    case (fst acc) of
+                      []      -> case (typeHa x) of
+                                   "ratio" -> ("ratio",([],(fst (osdToNum x))%(snd (osdToNum x))))
+                                   _       -> ("txt",(x,0))
+                      "ratio" -> case (typeHa x) of
+                                   "ratio" -> ("ratio",
+                                              (fst$snd acc,((snd$snd acc)+((fst (osdToNum x))%(snd (osdToNum x))))))
+                                   "txt"   -> ("txt",((showRatio (snd$snd acc))++x,snd$snd acc))
+                      "txt"   -> ("txt",((fst$snd acc)++x,snd$snd acc)) 
+                             ) ([],([],0)) wds 
+              in case (fst result) of
+                   "ratio" -> ("ratio",showRatio (snd$snd result))
+                   _       -> (fst result,fst$snd result)
+
+
+showRatio :: Ratio Int -> String
+showRatio rt =
+  let rat = show rt
+   in if (last$words rat)=="1" then numToOsd$head$words rat
+                               else numToOsd$concat$words rat
 
 typeHa :: String -> String
 typeHa str
-  | foldl (\acc x -> acc && (elem x (map snd numAndOsd))) True (head$words str) = "ratio"
+  | foldl (\acc x -> acc && (elem x (map snd numAndOsd))) True str = "ratio"
   | otherwise = "txt"
 
 numToOsd :: String -> String
