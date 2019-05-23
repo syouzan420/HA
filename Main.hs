@@ -298,15 +298,18 @@ getPosition by x y x0 x1 ls =
           else (round ((by+1)*(x-x0)+y),0)
 
 
-getHa :: String -> String
+getHa :: String -> (Int,String)
 getHa st =
   let wds = words st
-   in unwords $ snd $ foldr (\x acc ->
-     if snd acc==[] && x=="た"
-       then (True,[]) else if fst acc==True
-              then if x=="は" then (False,snd acc) else (True,x:snd acc)
-              else (False,snd acc)
-                            ) (False,[]) wds 
+      res = foldr (\x acc ->
+               if (snd$snd acc)==[] && x=="た"
+                 then (True,((fst$snd acc)+1,[])) else if fst acc==True
+                        then if x=="は" 
+                                then (False,((fst$snd acc)+1,snd$snd acc)) 
+                                else (True,((fst$snd acc)+1,x:(snd$snd acc)))
+                        else (False,((fst$snd acc),(snd$snd acc)))
+                                      ) (False,(0,[])) wds 
+   in (fst$snd res,unwords$snd$snd res)
 
 evalRatio :: String -> Ratio Int 
 evalRatio st =
@@ -335,14 +338,20 @@ osdToInt wd =
                             
 eval :: String -> (String, String)
 eval str =
-  let tgt = getHa str
+  let tgt = snd$getHa str
       wds = words tgt
    in if (tgt==[])
         then ([]," ")
         else let result =
                   foldl (\acc x -> 
                     case (fst acc) of
-                      []      -> case (typeHa x) of
+                      []      -> if (x=="まへ")
+                                    then let prs = take (length str - (fst$getHa str)) str
+                                             y = snd$eval prs
+                                          in case (fst$eval prs) of
+                                               "ratio" -> ("ratio",([],(fst (osdToNum y))%(snd (osdToNum y))))
+                                               _       -> ("txt",(y,0))
+                                    else case (typeHa x) of
                                    "ratio" -> ("ratio",([],(fst (osdToNum x))%(snd (osdToNum x))))
                                    _       -> ("txt",(x,0))
                       "ratio" -> case (typeHa x) of
