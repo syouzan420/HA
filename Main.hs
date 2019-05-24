@@ -24,6 +24,11 @@ data State = State
   , _md :: Int              -- input mode (0:normal 1:insert 2:insert2)
   , _tc :: Char             -- temporary stored character
   , _tx :: String
+  , _info :: String 
+  , _key :: Key            
+  , _ks :: KeyState
+  , _mdf :: Modifiers
+  , _cfk :: Int             -- count for key
   , hime :: Picture
   , osds :: [Maybe Picture]
   }
@@ -54,7 +59,9 @@ testText = "あきのたの かりほのいほの とまをあらみわがころ
 
 initState :: State
 initState = State {_x=0, _y=0, _by=bottomY, _lx=leftX, _sx=0, _sy=0
-                  , _md=0, _tc=' ', _tx=testText, hime=blank, osds=[Just blank]}
+                  , _md=0, _tc=' ', _tx=testText, _info = "" 
+                  , _key = Char ' ', _ks = Up, _mdf = Modifiers{shift=Up,ctrl=Up,alt=Up}
+                  ,_cfk = 0, hime=blank, osds=[Just blank]}
 
 drawPic :: State -> Picture
 drawPic st = 
@@ -63,9 +70,11 @@ drawPic st =
       line = lineStartX (_by st) numList
       picOsds = makePicOsds numList line st
       picDaku = makePicDaku numList line st
+      status = translate (startX-shiftX*leftX) (startY-shiftY*(bottomY+3)) $
+                  color green $ scale 0.3 0.3 $ text (_info st)
       cursor = translate (startX-shiftX*_x st) (startY-shiftY*_y st+shiftY/2) $
                   color orange $ rectangleSolid 28 2
-   in pictures $ cursor:himeB:picOsds++picDaku
+   in pictures $ cursor:status:himeB:picOsds++picDaku
 
 lineStartX :: Float -> [[a]] -> [Float]
 lineStartX by list = foldl (\acc ls -> acc++[(last acc +
@@ -89,11 +98,26 @@ makePicDaku numList line st =
                         ) nml [(a,b)|a<-[ln..],b<-[0..(_by st)]]) numList line
 
 updateState :: Event -> State -> State
-updateState (EventKey key ks mdf _) st = keyEvent key ks mdf st
+updateState (EventKey key ks mdf _) st = keyEvent key ks mdf st{_key=key,_ks=ks,_cfk=0}
 updateState _                       st = st
 
 nextPic :: Float -> State -> State
-nextPic _ st = st
+nextPic _ st = 
+  let newCfk = if _ks st==Down
+                  then if (_cfk st>5)
+                          then (-1)
+                          else if (_cfk st>=0) then(_cfk st + 1) else _cfk st
+                  else 0
+      mode = if(_md st==0) then "normal" else "insert"
+      keyn = keyName (_key st)
+      st' = st{_cfk=newCfk, _info="mode: "++mode++"  key: "++keyn}
+  in if(_cfk st<0)
+        then keyEvent (_key st) (_ks st) (_mdf st) st'
+        else st'
+          where keyName (Char k) = [k] 
+                keyName (SpecialKey k) = show k
+                keyName _ = []
+         
 
 up, down, right, left :: State -> State
 up    st = if(_y st > 0) then st { _y = _y st - 1} 
@@ -298,23 +322,15 @@ getPosition by x y x0 x1 ls =
           else (round ((by+1)*(x-x0)+y),0)
 
 
-getHa :: String -> (Int,String)
-getHa st =
-  let wds = words st
-      res = foldr (\x acc ->
-               if (snd$snd acc)==[] && x=="た"
-                 then (True,((fst$snd acc)+1,[])) else if fst acc==True
-                        then if x=="は" 
-                                then (False,((fst$snd acc)+1,snd$snd acc)) 
-                                else (True,((fst$snd acc)+1,x:(snd$snd acc)))
-                        else (False,((fst$snd acc),(snd$snd acc)))
-                                      ) (False,(0,[])) wds 
-   in (fst$snd res,unwords$snd$snd res)
+numAndOsd :: [(Char,Char)]
+numAndOsd = [('1','ひ'),('2','ふ'),('3','み'),('4','よ'),('5','ゐ'),('6','む'),
+             ('7','な'),('8','や'),('9','こ'),('0','ろ'),('-','ん'),('*','と'),('%','す')]
 
-evalRatio :: String -> Ratio Int 
-evalRatio st =
-  let wds = words st
-   in foldl (\acc x -> acc + (fst (osdToNum x))%(snd (osdToNum x))) 0 wds
+osdToInt :: String -> Int
+osdToInt wd =
+  read $ map (\c -> foldl (\acc s ->
+                if (snd s==c) then (fst s) else acc) ' ' numAndOsd 
+             ) wd 
 
 osdToNum :: String -> (Int,Int)
 osdToNum wd =
@@ -330,40 +346,11 @@ osdToNum wd =
       den = foldl (\acc x -> acc * osdToInt x) 1 (words denTxt)
    in (num,den) 
 
-osdToInt :: String -> Int
-osdToInt wd =
-  read $ map (\c -> foldl (\acc s ->
-                if (snd s==c) then (fst s) else acc) ' ' numAndOsd 
-             ) wd 
-                            
-eval :: String -> (String, String)
-eval str =
-  let tgt = snd$getHa str
-      wds = words tgt
-   in if (tgt==[])
-        then ([]," ")
-        else let result =
-                  foldl (\acc x -> 
-                    case (fst acc) of
-                      []      -> if (x=="まへ")
-                                    then let prs = take (length str - (fst$getHa str)) str
-                                             y = snd$eval prs
-                                          in case (fst$eval prs) of
-                                               "ratio" -> ("ratio",([],(fst (osdToNum y))%(snd (osdToNum y))))
-                                               _       -> ("txt",(y,0))
-                                    else case (typeHa x) of
-                                   "ratio" -> ("ratio",([],(fst (osdToNum x))%(snd (osdToNum x))))
-                                   _       -> ("txt",(x,0))
-                      "ratio" -> case (typeHa x) of
-                                   "ratio" -> ("ratio",
-                                              (fst$snd acc,((snd$snd acc)+((fst (osdToNum x))%(snd (osdToNum x))))))
-                                   "txt"   -> ("txt",((showRatio (snd$snd acc))++x,snd$snd acc))
-                      "txt"   -> ("txt",((fst$snd acc)++x,snd$snd acc)) 
-                             ) ([],([],0)) wds 
-              in case (fst result) of
-                   "ratio" -> ("ratio",showRatio (snd$snd result))
-                   _       -> (fst result,fst$snd result)
-
+numToOsd :: String -> String
+numToOsd str =
+  map (\c -> foldl (\acc s ->
+              if (fst s==c) then (snd s) else acc) ' ' numAndOsd 
+      ) str 
 
 showRatio :: Ratio Int -> String
 showRatio rt =
@@ -376,16 +363,60 @@ typeHa str
   | foldl (\acc x -> acc && (elem x (map snd numAndOsd))) True str = "ratio"
   | otherwise = "txt"
 
-numToOsd :: String -> String
-numToOsd str =
-  map (\c -> foldl (\acc s ->
-              if (fst s==c) then (snd s) else acc) ' ' numAndOsd 
-      ) str 
+getHa :: String -> (Int,String)
+getHa st =
+  let wds = words st
+      lng = foldr (\x acc ->
+              if (x=='は' && (snd acc)==' ')
+                 then (fst acc,'x')
+                 else if (snd acc=='x')
+                        then (fst acc,'x') else (fst acc+1,x)
+                  ) (0,'s') st
+      res = foldr (\x acc ->
+               if (snd acc)==[] && x=="た"
+                 then (True,[]) else if fst acc
+                        then if x=="は" 
+                                then (False,snd acc) 
+                                else (True,x:snd acc)
+                        else (False,snd acc)
+                                      ) (False,[]) wds 
+   in if (snd res==[]) then (0,[]) else (fst lng,unwords$snd res)
 
-numAndOsd :: [(Char,Char)]
-numAndOsd = [('1','ひ'),('2','ふ'),('3','み'),('4','よ'),('5','ゐ'),('6','む'),
-             ('7','な'),('8','や'),('9','こ'),('0','ろ'),('-','ん'),('*','と'),('%','す')]
+osdToRatio :: String -> Ratio Int 
+osdToRatio str = (fst (osdToNum str))%(snd (osdToNum str))
 
+eval :: String -> (String, String)
+eval str =
+  let tgt = snd$getHa str
+      wds = words tgt
+   in if (tgt==[])
+        then ([],"なし")
+        else
+          let peval = take (length str - (fst$getHa str)) str
+              ev = eval peval; c= fst ev; t = snd ev
+              result =
+                foldl (\acc x -> let tx = fst$snd acc; ra = snd$snd acc; in
+                  case (fst acc) of
+                    []      -> if (x=="まへ")
+                        then case c of
+                               "ratio" -> ("ratio",([],osdToRatio t))
+                               _       -> ("txt",(t,0))
+                        else case (typeHa x) of
+                               "ratio" -> ("ratio",([],osdToRatio x))
+                               _       -> ("txt",(x,0))
+                    "ratio" -> if (x=="まへ")
+                        then case c of
+                               "ratio" -> ("ratio",(tx,ra+osdToRatio t))
+                               _       -> ("txt",(showRatio ra++t,ra))
+                        else case (typeHa x) of
+                               "ratio" -> ("ratio",(tx,(ra+osdToRatio x)))
+                               "txt"   -> ("txt",((showRatio ra++x,ra)))
+                    "txt"   -> if (x=="まへ") then ("txt",(tx++t,ra))
+                                              else ("txt",(tx++x,ra)) 
+                      ) ([],([],0)) wds 
+          in case (fst result) of
+               "ratio" -> ("ratio",showRatio (snd$snd result))
+               _       -> (fst result,fst$snd result)
 
   
 loadPictures :: IO (Picture,[Maybe Picture])
@@ -402,4 +433,4 @@ main :: IO ()
 main = do
   (hime',osds') <- loadPictures
   let st' = initState {hime = hime', osds = osds'}
-  play window black 24 st' drawPic updateState nextPic
+  play window black 10 st' drawPic updateState nextPic
