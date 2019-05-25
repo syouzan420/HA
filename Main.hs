@@ -15,15 +15,14 @@ shiftY = 24
 fScale = 1 
 
 data State = State
-  { _x :: Float
-  , _y :: Float
-  , _by :: Float 
-  , _lx :: Float
-  , _sx :: Float
-  , _sy :: Float
+  { _x :: Float             -- cursor X
+  , _y :: Float             -- cursor Y
+  , _by :: Float            -- bottom Y 
+  , _lx :: Float            -- left X
+  , _sx :: Float            -- scroll X
   , _md :: Int              -- input mode (0:normal 1:insert 2:insert2)
   , _tc :: Char             -- temporary stored character
-  , _tx :: String
+  , _tx :: String           -- text
   , _info :: String 
   , _key :: Key            
   , _ks :: KeyState
@@ -58,8 +57,8 @@ testText :: String
 testText = "あきのたの かりほのいほの とまをあらみわがころもでは つゆにぬれつつ\nきみがよは ちよにやちよに さざれいしのいはをとなりて こけのむすまで\n\nあかはなま いきひにみうく"
 
 initState :: State
-initState = State {_x=0, _y=0, _by=bottomY, _lx=leftX, _sx=0, _sy=0
-                  , _md=0, _tc=' ', _tx=testText, _info = "" 
+initState = State {_x=0, _y=0, _by=bottomY, _lx=leftX, _sx=0, _md=0 
+                  , _tc=' ', _tx=testText, _info = "" 
                   , _key = Char ' ', _ks = Up, _mdf = Modifiers{shift=Up,ctrl=Up,alt=Up}
                   ,_cfk = 0, hime=blank, osds=[Just blank]}
 
@@ -87,7 +86,7 @@ makePicOsds numList line st =
   let txOsds = map (\ls -> map ((!!) (osds st)) (map abs ls)) numList
    in concat $ zipWith (\txos ln -> zipWith (\(Just t) (x,y) ->
         translate (startX-shiftX*x) (startY-shiftY*y) $ scale fScale fScale $ t)
-                      txos [(a,b)|a<-[ln..],b<-[0..(_by st)]]) txOsds line
+                      txos [(a,b)|a<-[(ln-_sx st)..],b<-[0..(_by st)]]) txOsds line
 
 makePicDaku :: [[Int]] -> [Float] -> State -> [Picture]
 makePicDaku numList line st =
@@ -95,7 +94,7 @@ makePicDaku numList line st =
    in concat $ zipWith (\nml ln -> zipWith (\t (x,y) -> 
         if(t<0) then translate (startX-shiftX*x) (startY-shiftY*y) $ scale fScale fScale $ daku
                 else blank
-                        ) nml [(a,b)|a<-[ln..],b<-[0..(_by st)]]) numList line
+                        ) nml [(a,b)|a<-[(ln-_sx st)..],b<-[0..(_by st)]]) numList line
 
 updateState :: Event -> State -> State
 updateState (EventKey key ks mdf _) st = keyEvent key ks mdf st{_key=key,_ks=ks,_cfk=0}
@@ -124,8 +123,8 @@ up    st = if(_y st > 0) then st { _y = _y st - 1}
                          else if (_x st>0) then st { _x = _x st - 1, _y = _by st}
                                            else st { _x = 0, _y = 0 }
 down  st = if(_y st < _by st+1) then st { _y = _y st + 1} else st { _x = _x st + 1, _y = 1 }
-right st = if(_x st > 0) then st { _x = _x st - 1} else st
-left  st = if(_x st < _lx st) then st { _x = _x st + 1} else st
+right st = if(_x st > 0) then st { _x = _x st - 1} else st {_sx = if(_sx st>0) then _sx st - 1 else 0}
+left  st = if(_x st < _lx st) then st { _x = _x st + 1} else st { _sx = _sx st +1 }
 
 modeC :: Char -> State -> State
 modeC ch st = st {_md = 2, _tc = ch}
@@ -243,13 +242,16 @@ addTxt ch st =
               newLn = (take ltNum ln)++sp++[ch]++(drop ltNum ln) 
            in (take lnNum txs)++[newLn]++(drop (lnNum+1) txs)
         else
-          let blankLines = take (round (_x st - (last lns))) (repeat [])
+          let blankLines = take (round (_x st + _sx st - (last lns))) (repeat [])
               sp = take (round (_y st)) (repeat ' ')
            in txs++blankLines++[sp++[ch]]
-      (nx,ny)= if (ch=='\n') then (_x st+1,0)
+      (nx,ny,nsx)= if (ch=='\n') then if (_x st<_lx st) then (_x st+1,0,_sx st)
+                                                    else (_x st,0,_sx st+1)
                              else if (_y st)>(_by st)
-                                    then (_x st+1,1) else (_x st,_y st+1)
-   in st {_tx = unlines newTxs, _x = nx, _y = ny, _md=1}
+                                    then if (_x st<_lx st) then (_x st+1,1,_sx st) 
+                                                           else (_x st,1,_sx st+1)
+                                    else (_x st,_y st+1,_sx st)
+           in st {_tx = unlines newTxs, _x = nx, _y = ny, _sx = nsx, _md=1}
 
 delTxt :: State -> State
 delTxt st =
@@ -265,11 +267,13 @@ delTxt st =
                          else ln
            in (take lnNum txs)++[newLn]++(drop (lnNum+1) txs)
         else txs
-      (nx,ny)= if (_y st)>1
-                  then (_x st,_y st-1)
+      (nx,ny,nsx)= if (_y st)>1
+                  then (_x st,_y st-1,_sx st)
                   else if (_x st>0)
-                          then (_x st-1,_by st+1) else (0,0)
-   in st {_tx = unlines newTxs, _x = nx, _y = ny}
+                          then (_x st-1,_by st+1,_sx st)
+                          else if _sx st>0 then (0,_by st+1,_sx st-1)
+                                           else (0,0,0)
+  in st {_tx = unlines newTxs, _x = nx, _y = ny, _sx = nsx}
 
 evalTxt :: State -> State
 evalTxt st =
@@ -296,12 +300,12 @@ curToTxt :: State -> ((Int,(Float,Float)),(Int,Int))
 curToTxt st =
   let txs = lines (_tx st) 
       lns = lineStartX (_by st) txs 
-      lnInfo = getLn 0 (_x st) lns
+      lnInfo = getLn 0 (_x st+_sx st) lns
       lnNum = fst lnInfo
   in  if lnNum>(-1)
         then
           let ln = txs !! lnNum
-              txPos = getPosition (_by st) (_x st) (_y st)
+              txPos = getPosition (_by st) (_x st+_sx st) (_y st)
                   (fst$snd lnInfo) (snd$snd lnInfo) ln 
            in (lnInfo,txPos) 
         else (lnInfo,(0,0)) 
