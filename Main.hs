@@ -389,35 +389,43 @@ getHa st =
 osdToRatio :: String -> Ratio Int 
 osdToRatio str = (fst (osdToNum str))%(snd (osdToNum str))
 
+arrExp :: String -> [String] -> [String]
+arrExp pev wds= foldl (\acc x ->
+  if (head x=='と')|| (head x=='す')
+     then if (typeHa (tail x)=="ratio")
+             then if acc==[]
+                     then acc++[x]
+                     else (init acc)++[(last acc)++x]
+             else acc++[x]
+     else if (length x>1)
+             then let cap = take 2 x
+                  in if cap=="まへ"
+                        then acc++[(snd$eval pev)++(drop 2 x)]
+                        else acc++[x]
+             else acc++[x]
+                ) [] wds
+
 eval :: String -> (String, String)
 eval str =
   let tgt = snd$getHa str
-      wds = words tgt
    in if (tgt==[])
         then ([],"なし")
         else
-          let peval = take (length str - (fst$getHa str)) str
+          let wds = words tgt 
+              peval = take (length str - (fst$getHa str)) str
+              nwds = arrExp peval wds
               ev = eval peval; c= fst ev; t = snd ev
               result =
                 foldl (\acc x -> let tx = fst$snd acc; ra = snd$snd acc; in
                   case (fst acc) of
-                    []      -> if (x=="まへ")
-                        then case c of
-                               "ratio" -> ("ratio",([],osdToRatio t))
-                               _       -> ("txt",(t,0))
-                        else case (typeHa x) of
-                               "ratio" -> ("ratio",([],osdToRatio x))
-                               _       -> ("txt",(x,0))
-                    "ratio" -> if (x=="まへ")
-                        then case c of
-                               "ratio" -> ("ratio",(tx,ra+osdToRatio t))
-                               _       -> ("txt",(showRatio ra++t,ra))
-                        else case (typeHa x) of
-                               "ratio" -> ("ratio",(tx,(ra+osdToRatio x)))
-                               "txt"   -> ("txt",((showRatio ra++x,ra)))
-                    "txt"   -> if (x=="まへ") then ("txt",(tx++t,ra))
-                                              else ("txt",(tx++x,ra)) 
-                      ) ([],([],0)) wds 
+                    []      -> case (typeHa x) of
+                                 "ratio" -> ("ratio",([],osdToRatio x))
+                                 _       -> ("txt",(x,0))
+                    "ratio" -> case (typeHa x) of
+                                 "ratio" -> ("ratio",(tx,(ra+osdToRatio x)))
+                                 "txt"   -> ("txt",((showRatio ra++x,ra)))
+                    "txt"   -> ("txt",(tx++x,ra)) 
+                      ) ([],([],0)) nwds 
           in case (fst result) of
                "ratio" -> ("ratio",showRatio (snd$snd result))
                _       -> (fst result,fst$snd result)
