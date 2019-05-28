@@ -23,6 +23,7 @@ data State = State
   , _md :: Int              -- input mode (0:normal 1:insert 2:insert2)
   , _tc :: Char             -- temporary stored character
   , _tx :: String           -- text
+  , _fn :: [(String,String)]    -- functions
   , _info :: String 
   , _key :: Key            
   , _ks :: KeyState
@@ -58,7 +59,7 @@ testText = "あきのたの かりほのいほの とまをあらみわがころ
 
 initState :: State
 initState = State {_x=0, _y=0, _by=bottomY, _lx=leftX, _sx=0, _md=0 
-                  , _tc=' ', _tx=testText, _info = "" 
+                  , _tc=' ', _tx=testText, _fn=[], _info = "" 
                   , _key = Char ' ', _ks = Up, _mdf = Modifiers{shift=Up,ctrl=Up,alt=Up}
                   ,_cfk = 0, hime=blank, osds=[Just blank]}
 
@@ -294,7 +295,14 @@ evalTxt st =
            in unlines $ (take lnNum txs)++[newLn]
         else
            _tx st 
-   in (foldl (\acc x -> addTxt x acc) st (snd $ eval newTx)) {_md = 0}
+      (typ,str) = eval (_fn st) newTx
+      rst = if (length$words str)<3
+               then str else head$words str
+  in (foldl (\acc x -> addTxt x acc) st rst) 
+        {_md=0, _fn=if (head$words typ)=="func"
+                       then _fn (addFunc (head$words str,unwords$tail$words str) st)
+                       else _fn st
+        }
 
 curToTxt :: State -> ((Int,(Float,Float)),(Int,Int))
 curToTxt st =
@@ -309,7 +317,6 @@ curToTxt st =
                   (fst$snd lnInfo) (snd$snd lnInfo) ln 
            in (lnInfo,txPos) 
         else (lnInfo,(0,0)) 
-
 
 
 getLn :: Int -> Float -> [Float] -> (Int,(Float,Float))
@@ -367,54 +374,64 @@ typeHa str
   | foldl (\acc x -> acc && (elem x (map snd numAndOsd))) True str = "ratio"
   | otherwise = "txt"
 
-getHa :: String -> (Int,String)
-getHa st =
-  let wds = words st
+getHa :: String -> (Int,(String,String))
+getHa str =
+  let wds = words str
       lng = foldr (\x acc ->
               if (x=='は' && (snd acc)==' ')
-                 then (fst acc,'x')
+                 then (fst acc+1,'x')
                  else if (snd acc=='x')
-                        then (fst acc,'x') else (fst acc+1,x)
-                  ) (0,'s') st
+                        then if (x==' ')
+                                then (fst acc+1,'y')
+                                else (fst acc+1,'x')
+                        else if(snd acc=='y')
+                                then (fst acc,'y')
+                                else (fst acc+1,x)
+                  ) (0,'s') str
       res = foldr (\x acc ->
-               if (snd acc)==[] && x=="た"
-                 then (True,[]) else if fst acc
-                        then if x=="は" 
-                                then (False,snd acc) 
-                                else (True,x:snd acc)
-                        else (False,snd acc)
-                                      ) (False,[]) wds 
-   in if (snd res==[]) then (0,[]) else (fst lng,unwords$snd res)
+               if (fst$snd acc)==[] && x=="た"
+                 then (True,([],[])) else if fst acc
+                        then if last x=='は' 
+                                then (False,(fst$snd acc,init x)) 
+                                else (True,(x:(fst$snd acc),[]))
+                        else (False,(fst$snd acc,snd$snd acc))
+                                      ) (False,([],[])) wds 
+   in if ((fst$snd res)==[]) then (0,([],[])) else (fst lng,(unwords$fst$snd res,snd$snd res))
 
 osdToRatio :: String -> Ratio Int 
 osdToRatio str = (fst (osdToNum str))%(snd (osdToNum str))
 
-arrExp :: String -> [String] -> [String]
-arrExp pev wds= foldl (\acc x ->
-  if (head x=='と')|| (head x=='す')
-     then if (typeHa (tail x)=="ratio")
-             then if acc==[]
-                     then acc++[x]
-                     else (init acc)++[(last acc)++x]
-             else acc++[x]
-     else if (length x>1)
-             then let cap = take 2 x
-                  in if cap=="まへ"
-                        then acc++[(snd$eval pev)++(drop 2 x)]
-                        else acc++[x]
-             else acc++[x]
-                ) [] wds
+arrExp :: [(String,String)] -> String -> [String] -> [String]
+arrExp fn pev wds= foldl (\acc x ->
+  let nmList = map fst fn 
+      eln = elNum 0 x nmList
+  in if (elem x nmList)
+        then acc++(words (snd (fn!!eln)))
+        else if (head x=='と')|| (head x=='す')
+               then if (typeHa (tail x)=="ratio")
+                       then if acc==[]
+                               then acc++[x]
+                               else (init acc)++[(last acc)++x]
+                       else acc++[x]
+               else if (length x>1)
+                       then let cap = take 2 x
+                            in if cap=="まへ"
+                                  then acc++[(snd$(eval fn pev))++(drop 2 x)]
+                                  else acc++[x]
+                       else acc++[x]
+                          ) [] wds
 
-eval :: String -> (String, String)
-eval str =
-  let tgt = snd$getHa str
+eval :: [(String,String)] -> String -> (String, String)
+eval fn str =
+  let tgt = fst$snd$getHa str
+      name = snd$snd$getHa str
    in if (tgt==[])
         then ([],"なし")
         else
           let wds = words tgt 
               peval = take (length str - (fst$getHa str)) str
-              nwds = arrExp peval wds
-              ev = eval peval; c= fst ev; t = snd ev
+              nwds = arrExp fn peval wds
+              ev = eval fn peval; c= fst ev; t = snd ev
               result =
                 foldl (\acc x -> let tx = fst$snd acc; ra = snd$snd acc; in
                   case (fst acc) of
@@ -423,12 +440,30 @@ eval str =
                                  _       -> ("txt",(x,0))
                     "ratio" -> case (typeHa x) of
                                  "ratio" -> ("ratio",(tx,(ra+osdToRatio x)))
-                                 "txt"   -> ("txt",((showRatio ra++x,ra)))
-                    "txt"   -> ("txt",(tx++x,ra)) 
+                                 "txt"   -> ("txt",((showRatio ra++" "++x,ra)))
+                    "txt"   -> ("txt",(tx++" "++x,ra)) 
                       ) ([],([],0)) nwds 
           in case (fst result) of
-               "ratio" -> ("ratio",showRatio (snd$snd result))
-               _       -> (fst result,fst$snd result)
+               "ratio" -> if (name==[]) then ("ratio",showRatio (snd$snd result))
+                                        else ("func ratio",name++" "++(showRatio (snd$snd result)))
+               _       -> if (name==[]) then (fst result,fst$snd result)
+                                        else ("func "++(fst result),name++" "++(fst$snd result))
+
+addFunc :: (String,String) -> State -> State
+addFunc str st =
+  let nmList = map fst (_fn st)
+      fsr = fst str
+      eln = elNum 0 fsr nmList
+  in if (elem fsr nmList)
+        then st {_fn = (take eln (_fn st))++[(fsr,snd str)]++(drop eln (_fn st))}
+        else st {_fn = (_fn st) ++ [(fsr,snd str)]}
+
+elNum :: Int -> String -> [String] -> Int
+elNum _ _ [] = 0
+elNum i str (x:xs)
+  | str==x = i
+  | otherwise = elNum (i+1) str xs 
+         
 
   
 loadPictures :: IO (Picture,[Maybe Picture])
