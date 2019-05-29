@@ -5,6 +5,16 @@ import Graphics.Gloss.Juicy
 import Graphics.Gloss.Interface.IO.Game
 import Data.Ratio
 
+type Lineinfo = (Int,(Float,Float))
+
+type Position = (Int,Int)
+
+type Fname = String
+
+type Fbody = String
+
+type Ftype = String
+
 startX, startY, bottomY, leftX, shiftX, shiftY, fScale :: Float 
 startX = 250 
 startY = 250 
@@ -23,7 +33,7 @@ data State = State
   , _md :: Int              -- input mode (0:normal 1:insert 2:insert2)
   , _tc :: Char             -- temporary stored character
   , _tx :: String           -- text
-  , _fn :: [(String,String)]    -- functions
+  , _fn :: [(Fname,Fbody)]    -- functions (name, body)
   , _info :: String 
   , _key :: Key            
   , _ks :: KeyState
@@ -304,11 +314,11 @@ evalTxt st =
                        else _fn st
         }
 
-curToTxt :: State -> ((Int,(Float,Float)),(Int,Int))
+curToTxt :: State -> (Lineinfo,Position)
 curToTxt st =
   let txs = lines (_tx st) 
       lns = lineStartX (_by st) txs 
-      lnInfo = getLn 0 (_x st+_sx st) lns
+      lnInfo = getLn (_x st+_sx st) lns
       lnNum = fst lnInfo
   in  if lnNum>(-1)
         then
@@ -319,13 +329,14 @@ curToTxt st =
         else (lnInfo,(0,0)) 
 
 
-getLn :: Int -> Float -> [Float] -> (Int,(Float,Float))
-getLn _ _ (y:[]) = ((-1),(y,y+1))
-getLn i x (y:z:ys) =
-  if (x>=y && x<z) then (i,(y,z))
-                   else getLn (i+1) x (z:ys)
+getLn :: Float -> [Float] -> Lineinfo 
+getLn = getLn' 0 where 
+  getLn' _ _ (y:[]) = ((-1),(y,y+1))
+  getLn' i x (y:z:ys) =
+     if (x>=y && x<z) then (i,(y,z))
+                      else getLn' (i+1) x (z:ys)
 
-getPosition :: Float -> Float -> Float -> Float -> Float -> [a] -> (Int,Int)
+getPosition :: Float -> Float -> Float -> Float -> Float -> [a] -> Position 
 getPosition by x y x0 x1 ls =
   let lastLetters = fromIntegral (length ls) - (by+1)*(x-x0) 
    in if (x==(x1-1)) && lastLetters<y
@@ -374,7 +385,7 @@ typeHa str
   | foldl (\acc x -> acc && (elem x (map snd numAndOsd))) True str = "ratio"
   | otherwise = "txt"
 
-getHa :: String -> (Int,(String,String))
+getHa :: String -> (Int,(Fbody,Fname))
 getHa str =
   let wds = words str
       lng = foldr (\x acc ->
@@ -401,10 +412,10 @@ getHa str =
 osdToRatio :: String -> Ratio Int 
 osdToRatio str = (fst (osdToNum str))%(snd (osdToNum str))
 
-arrExp :: [(String,String)] -> String -> [String] -> [String]
+arrExp :: [(Fname,Fbody)] -> String -> [String] -> [String]
 arrExp fn pev wds= foldl (\acc x ->
   let nmList = map fst fn 
-      eln = elNum 0 x nmList
+      eln = elNum x nmList
   in if (elem x nmList)
         then acc++(words (snd (fn!!eln)))
         else if (head x=='と')|| (head x=='す')
@@ -421,7 +432,7 @@ arrExp fn pev wds= foldl (\acc x ->
                        else acc++[x]
                           ) [] wds
 
-eval :: [(String,String)] -> String -> (String, String)
+eval :: [(Fname,Fbody)] -> String -> (Ftype, String)
 eval fn str =
   let tgt = fst$snd$getHa str
       name = snd$snd$getHa str
@@ -449,21 +460,21 @@ eval fn str =
                _       -> if (name==[]) then (fst result,fst$snd result)
                                         else ("func "++(fst result),name++" "++(fst$snd result))
 
-addFunc :: (String,String) -> State -> State
+addFunc :: (Fname,Fbody) -> State -> State
 addFunc str st =
   let nmList = map fst (_fn st)
       fsr = fst str
-      eln = elNum 0 fsr nmList
+      eln = elNum fsr nmList
   in if (elem fsr nmList)
         then st {_fn = (take eln (_fn st))++[(fsr,snd str)]++(drop eln (_fn st))}
         else st {_fn = (_fn st) ++ [(fsr,snd str)]}
 
-elNum :: Int -> String -> [String] -> Int
-elNum _ _ [] = 0
-elNum i str (x:xs)
-  | str==x = i
-  | otherwise = elNum (i+1) str xs 
-         
+elNum :: String -> [Fname] -> Int
+elNum = elNum' 0 where
+  elNum' _ _ [] = 0
+  elNum' i str (x:xs)
+    | str==x = i
+    | otherwise = elNum' (i+1) str xs 
 
   
 loadPictures :: IO (Picture,[Maybe Picture])
