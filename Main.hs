@@ -418,18 +418,20 @@ arrExp fn pev wds= foldl (\acc x ->
       eln = elNum x nmList
   in if (elem x nmList)
         then acc++(words (snd (fn!!eln)))
-        else if (head x=='と')|| (head x=='す')
+        else if acc==[]
+              then acc++[x]
+              else if ((head x=='と')|| (head x=='す')) && (typeHa (last acc)=="ratio")
                then if (typeHa (tail x)=="ratio")
-                       then if acc==[]
-                               then acc++[x]
-                               else (init acc)++[(last acc)++x]
+                       then (init acc)++[(last acc)++x]
                        else acc++[x]
-               else if (length x>1)
-                       then let cap = take 2 x
-                            in if cap=="まへ"
-                                  then acc++[(snd$(eval fn pev))++(drop 2 x)]
-                                  else acc++[x]
-                       else acc++[x]
+               else if (typeHa x=="ratio") && (typeHa (last acc)=="ratio") && ((last$last acc)=='と')
+                      then (init acc)++[(last acc)++x]
+                      else if (length x>1)
+                             then let cap = take 2 x
+                                  in if cap=="まへ"
+                                        then acc++[(snd$(eval fn pev))++(drop 2 x)]
+                                        else acc++[x]
+                             else acc++[x]
                           ) [] wds
 
 eval :: [(Fname,Fbody)] -> String -> (Ftype, String)
@@ -441,7 +443,8 @@ eval fn str =
         else
           let wds = words tgt 
               peval = take (length str - (fst$getHa str)) str
-              nwds = arrExp fn peval wds
+              fwds = arrFunc fn wds
+              nwds = arrExp fn peval fwds
               ev = eval fn peval; c= fst ev; t = snd ev
               result =
                 foldl (\acc x -> let tx = fst$snd acc; ra = snd$snd acc; in
@@ -469,13 +472,38 @@ addFunc str st =
         then st {_fn = (take eln (_fn st))++[(fsr,snd str)]++(drop eln (_fn st))}
         else st {_fn = (_fn st) ++ [(fsr,snd str)]}
 
-elNum :: String -> [Fname] -> Int
+elNum :: String -> [String] -> Int
 elNum = elNum' 0 where
   elNum' _ _ [] = 0
   elNum' i str (x:xs)
     | str==x = i
     | otherwise = elNum' (i+1) str xs 
 
+
+preFunc :: (Fname,Fbody) -> ([String],[String])
+preFunc (nm,bd) =
+  let bds = words bd
+      eln = elNum "か" bds
+      arg = if eln>0 then take eln bds else []
+      exp = if eln>0 then drop (eln+1) bds else bds
+   in (nm:arg,exp)
+
+arrFunc :: [(Fname,Fbody)] -> [String] -> [String]
+arrFunc fn wds = foldl (\acc x -> 
+  if elem x nmList
+     then let (fin,fout) = preFunc (fn!!(elNum x nmList)) 
+              accInit = take (length acc - length fout) acc
+              accArg = drop (length acc - length fout) acc
+           in accInit ++ rplArg (tail fin) fout accArg
+     else acc ++ [x]
+          ) [] wds
+      where nmList = map fst fn 
+
+rplArg :: [String] -> [String] -> [String] -> [String]
+rplArg anm fnb arg = foldl (\acc x ->
+  if elem x anm then acc ++ [arg!!(elNum x anm)]
+                else acc ++ [x]
+                           ) [] fnb
   
 loadPictures :: IO (Picture,[Maybe Picture])
 loadPictures = do
