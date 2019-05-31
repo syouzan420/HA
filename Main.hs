@@ -33,7 +33,7 @@ data State = State
   , _md :: Int              -- input mode (0:normal 1:insert 2:insert2)
   , _tc :: Char             -- temporary stored character
   , _tx :: String           -- text
-  , _fn :: [(Fname,Fbody)]    -- functions (name, body)
+  , _fn :: [(Fname,Fbody)]  -- functions (name, body)
   , _info :: String 
   , _key :: Key            
   , _ks :: KeyState
@@ -43,23 +43,25 @@ data State = State
   , osds :: [Maybe Picture]
   }
 
+osdAndNum :: [(Char,Int)]
+osdAndNum = [('あ',0),('い',1),('う',2),('え',3),('お',4),('か',15),('き',19),('く',23),('け',27),('こ',31)
+            ,('さ',55),('し',51),('す',46),('せ',42),('そ',37),('た',53),('ち',49),('つ',44),('て',40),('と',35)
+            ,('な',17),('に',21),('ぬ',25),('ね',29),('の',33),('は',16),('ひ',20),('ふ',24),('へ',28),('ほ',32)
+            ,('ま',18),('み',22),('む',26),('め',30),('も',34),('や',56),('ゐ',52),('ゆ',47),('ゑ',43),('よ',38)
+            ,('ら',54),('り',50),('る',45),('れ',41),('ろ',36),('わ',57),('を',39),('ん',48),(' ',14)
+            ,('が',(-15)),('ぎ',(-19)),('ぐ',(-23)),('げ',(-27)),('ご',(-31))
+            ,('ざ',(-55)),('じ',(-51)),('ず',(-46)),('ぜ',(-42)),('ぞ',(-37))
+            ,('だ',(-53)),('ぢ',(-49)),('づ',(-44)),('で',(-40)),('ど',(-35))
+            ,('ば',(-16)),('び',(-20)),('ぶ',(-24)),('べ',(-28)),('ぼ',(-32))]
+
+getSecond :: (Eq a,Num b) => [(a,b)] -> a -> b
+getSecond [] _ = 999
+getSecond (x:xs) y
+  | fst x==y  = snd x
+  | otherwise = getSecond xs y
+
 converter :: Char -> Int
-converter st = case st of
-     'あ' -> 0; 'い' -> 1; 'う' -> 2; 'え' -> 3; 'お' -> 4
-     'か' -> 15; 'き' -> 19; 'く' -> 23; 'け' -> 27; 'こ' -> 31
-     'さ' -> 55; 'し' -> 51; 'す' -> 46; 'せ' -> 42; 'そ' -> 37
-     'た' -> 53; 'ち' -> 49; 'つ' -> 44; 'て' -> 40; 'と' -> 35
-     'な' -> 17; 'に' -> 21; 'ぬ' -> 25; 'ね' -> 29; 'の' -> 33
-     'は' -> 16; 'ひ' -> 20; 'ふ' -> 24; 'へ' -> 28; 'ほ' -> 32
-     'ま' -> 18; 'み' -> 22; 'む' -> 26; 'め' -> 30; 'も' -> 34
-     'や' -> 56; 'ゐ' -> 52; 'ゆ' -> 47; 'ゑ' -> 43; 'よ' -> 38
-     'ら' -> 54; 'り' -> 50; 'る' -> 45; 'れ' -> 41; 'ろ' -> 36
-     'わ' -> 57; 'を' -> 39; 'ん' -> 48; ' ' -> 14;
-     'が' -> (-15); 'ぎ' -> (-19); 'ぐ' -> (-23); 'げ' -> (-27); 'ご' -> (-31)
-     'ざ' -> (-55); 'じ' -> (-51); 'ず' -> (-46); 'ぜ' -> (-42); 'ぞ' -> (-37)
-     'だ' -> (-53); 'ぢ' -> (-49); 'づ' -> (-44); 'で' -> (-40); 'ど' -> (-35)
-     'ば' -> (-16); 'び' -> (-20); 'ぶ' -> (-24); 'べ' -> (-28); 'ぼ' -> (-32)
-     _    -> 99 
+converter = getSecond osdAndNum
 
 window :: Display
 window = InWindow "は" (640,640) (100,0)
@@ -266,8 +268,15 @@ addTxt ch st =
 
 delTxt :: State -> State
 delTxt st =
-  let txs = lines (_tx st) 
-      (lnInfo,txPos) = curToTxt st
+  let (x',y',sx') = if (_y st)==0
+                       then if (_x st>0)
+                               then (_x st-1,_by st+1,_sx st)
+                               else if (_sx st>0) then (0,_by st+1,_sx st-1)
+                                                  else (0,0,0)
+                       else (_x st,_y st,_sx st)
+      st' = st{_x=x', _y=y', _sx=sx'}
+      txs = lines (_tx st') 
+      (lnInfo,txPos) = curToTxt st'
       lnNum = fst lnInfo
       newTxs = if lnNum>(-1)
         then
@@ -278,13 +287,9 @@ delTxt st =
                          else ln
            in (take lnNum txs)++[newLn]++(drop (lnNum+1) txs)
         else txs
-      (nx,ny,nsx)= if (_y st)>1
-                  then (_x st,_y st-1,_sx st)
-                  else if (_x st>0)
-                          then (_x st-1,_by st+1,_sx st)
-                          else if _sx st>0 then (0,_by st+1,_sx st-1)
-                                           else (0,0,0)
-  in st {_tx = unlines newTxs, _x = nx, _y = ny, _sx = nsx}
+      (nx,ny,nsx)= if _x st'==0 && _y st'==0 && _sx st'==0
+                      then (0,0,0) else (_x st',_y st'-1,_sx st')
+  in st' {_tx = unlines newTxs, _x = nx, _y = ny, _sx = nsx}
 
 evalTxt :: State -> State
 evalTxt st =
@@ -424,7 +429,8 @@ arrExp fn pev wds= foldl (\acc x ->
                then if (typeHa (tail x)=="ratio")
                        then (init acc)++[(last acc)++x]
                        else acc++[x]
-               else if (typeHa x=="ratio") && (typeHa (last acc)=="ratio") && ((last$last acc)=='と')
+               else if (typeHa x=="ratio") && (typeHa (last acc)=="ratio")
+                              && ((last$last acc)=='と' || (last$last acc)=='す')
                       then (init acc)++[(last acc)++x]
                       else if (length x>1)
                              then let cap = take 2 x
@@ -463,6 +469,14 @@ eval fn str =
                _       -> if (name==[]) then (fst result,fst$snd result)
                                         else ("func "++(fst result),name++" "++(fst$snd result))
 
+
+elNum :: String -> [String] -> Int
+elNum = elNum' 0 where
+  elNum' _ _ [] = (-1) 
+  elNum' i str (x:xs)
+    | str==x = i
+    | otherwise = elNum' (i+1) str xs 
+
 addFunc :: (Fname,Fbody) -> State -> State
 addFunc str st =
   let nmList = map fst (_fn st)
@@ -471,14 +485,6 @@ addFunc str st =
   in if (elem fsr nmList)
         then st {_fn = (take eln (_fn st))++[(fsr,snd str)]++(drop eln (_fn st))}
         else st {_fn = (_fn st) ++ [(fsr,snd str)]}
-
-elNum :: String -> [String] -> Int
-elNum = elNum' 0 where
-  elNum' _ _ [] = 0
-  elNum' i str (x:xs)
-    | str==x = i
-    | otherwise = elNum' (i+1) str xs 
-
 
 preFunc :: (Fname,Fbody) -> ([String],[String])
 preFunc (nm,bd) =
@@ -505,6 +511,7 @@ rplArg anm fnb arg = foldl (\acc x ->
                 else acc ++ [x]
                            ) [] fnb
   
+
 loadPictures :: IO (Picture,[Maybe Picture])
 loadPictures = do
   Just hime <- loadJuicy "img/hime.png"
