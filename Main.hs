@@ -6,13 +6,9 @@ import Graphics.Gloss.Interface.IO.Game
 import Data.Ratio
 
 type Lineinfo = (Int,(Float,Float))
-
 type Position = (Int,Int)
-
 type Fname = String
-
 type Fbody = String
-
 type Ftype = String
 
 startX, startY, bottomY, leftX, shiftX, shiftY, fScale :: Float 
@@ -351,7 +347,7 @@ getPosition by x y x0 x1 ls =
 
 numAndOsd :: [(Char,Char)]
 numAndOsd = [('1','ひ'),('2','ふ'),('3','み'),('4','よ'),('5','ゐ'),('6','む'),
-             ('7','な'),('8','や'),('9','こ'),('0','ろ'),('-','ん'),('*','と'),('%','す')]
+             ('7','な'),('8','や'),('9','こ'),('0','ろ'),('-','き'),('+','と'),('*','を'),('%','す')]
 
 osdToInt :: String -> Int
 osdToInt wd =
@@ -362,11 +358,11 @@ osdToInt wd =
 osdToNum :: String -> (Int,Int)
 osdToNum wd =
   let (_,numTxt) = foldl (\(fl,acc) x ->
-        if x=='と' then (True,acc++" ")
+        if x=='を' then (True,acc++" ")
                    else if x=='す' then (False,acc++" ")
                                    else if fl then (True,acc++[x]) else (False,acc)) (True,[]) wd
       (_,denTxt) = foldl (\(fl,acc) x ->
-        if x=='と' then (False,acc++" ")
+        if x=='を' then (False,acc++" ")
                    else if x=='す' then (True,acc++" ")
                                    else if fl then (True,acc++[x]) else (False,acc)) (False,[]) wd
       num = foldl (\acc x -> acc * osdToInt x) 1 (words numTxt)
@@ -415,7 +411,16 @@ getHa str =
    in if ((fst$snd res)==[]) then (0,([],[])) else (fst lng,(unwords$fst$snd res,snd$snd res))
 
 osdToRatio :: String -> Ratio Int 
-osdToRatio str = (fst (osdToNum str))%(snd (osdToNum str))
+osdToRatio str = 
+  let strs = sepNumOp str
+   in foldl (\acc x -> acc+(fst (osdToNum x))%(snd (osdToNum x))) 0 strs
+
+sepNumOp :: String -> [String]
+sepNumOp str = foldl (\acc x ->
+      if x=='き' || acc==[] 
+          then acc++[[x]] else if x=='と'
+                then acc++[[]] else (init acc)++[(last acc)++[x]]
+                     ) [] str
 
 arrExp :: [(Fname,Fbody)] -> String -> [String] -> [String]
 arrExp fn pev wds= foldl (\acc x ->
@@ -425,12 +430,12 @@ arrExp fn pev wds= foldl (\acc x ->
         then acc++(words (snd (fn!!eln)))
         else if acc==[]
               then acc++[x]
-              else if ((head x=='と')|| (head x=='す')) && (typeHa (last acc)=="ratio")
+              else if ((head x=='を')|| (head x=='す')) && (typeHa (last acc)=="ratio")
                then if (typeHa (tail x)=="ratio")
                        then (init acc)++[(last acc)++x]
                        else acc++[x]
                else if (typeHa x=="ratio") && (typeHa (last acc)=="ratio")
-                              && ((last$last acc)=='と' || (last$last acc)=='す')
+                              && ((last$last acc)=='を' || (last$last acc)=='す')
                       then (init acc)++[(last acc)++x]
                       else if (length x>1)
                              then let cap = take 2 x
