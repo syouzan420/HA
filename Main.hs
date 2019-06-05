@@ -422,29 +422,6 @@ sepNumOp str = foldl (\acc x ->
                 then acc++[[]] else (init acc)++[(last acc)++[x]]
                      ) [] str
 
-arrExp :: [(Fname,Fbody)] -> String -> [String] -> [String]
-arrExp fn pev wds= foldl (\acc x ->
-  let nmList = map fst fn 
-      eln = elNum x nmList
-  in if (elem x nmList)
-        then acc++(words (snd (fn!!eln)))
-        else if acc==[]
-              then acc++[x]
-              else if ((head x=='を')|| (head x=='す')) && (typeHa (last acc)=="ratio")
-               then if (typeHa (tail x)=="ratio")
-                       then (init acc)++[(last acc)++x]
-                       else acc++[x]
-               else if (typeHa x=="ratio") && (typeHa (last acc)=="ratio")
-                              && ((last$last acc)=='を' || (last$last acc)=='す')
-                      then (init acc)++[(last acc)++x]
-                      else if (length x>1)
-                             then let cap = take 2 x
-                                  in if cap=="まへ"
-                                        then acc++[(snd$(eval fn pev))++(drop 2 x)]
-                                        else acc++[x]
-                             else acc++[x]
-                          ) [] wds
-
 eval :: [(Fname,Fbody)] -> String -> (Ftype, String)
 eval fn str =
   let tgt = fst$snd$getHa str
@@ -454,26 +431,44 @@ eval fn str =
         else
           let wds = words tgt 
               peval = take (length str - (fst$getHa str)) str
-              fwds = arrFunc fn wds
-              nwds = arrExp fn peval fwds
-              ev = eval fn peval; c= fst ev; t = snd ev
-              result =
-                foldl (\acc x -> let tx = fst$snd acc; ra = snd$snd acc; in
-                  case (fst acc) of
-                    []      -> case (typeHa x) of
-                                 "ratio" -> ("ratio",([],osdToRatio x))
-                                 _       -> ("txt",(x,0))
-                    "ratio" -> case (typeHa x) of
-                                 "ratio" -> ("ratio",(tx,(ra+osdToRatio x)))
-                                 "txt"   -> ("txt",((showRatio ra++" "++x,ra)))
-                    "txt"   -> ("txt",(tx++" "++x,ra)) 
-                      ) ([],([],0)) nwds 
-          in case (fst result) of
-               "ratio" -> if (name==[]) then ("ratio",showRatio (snd$snd result))
-                                        else ("func ratio",name++" "++(showRatio (snd$snd result)))
-               _       -> if (name==[]) then (fst result,fst$snd result)
-                                        else ("func "++(fst result),name++" "++(fst$snd result))
+              ebd = ebody fn peval "" [] wds
+              result = case (fst ebd) of
+                         "ratio" -> showRatio$foldl (\acc x -> acc+(osdToRatio x)) 0 (snd ebd)
+                         _       -> foldl (\acc x -> acc++" "++x) "" (snd ebd)
+          in case (fst ebd) of
+               "ratio" -> if (name==[]) then ("ratio",result)
+                                        else ("func ratio",name++" "++result)
+               _       -> if (name==[]) then (fst ebd,result)
+                                        else ("func "++(fst ebd),name++" "++result)
 
+ebody :: [(Fname,Fbody)] -> String -> Ftype ->  [String] -> [String] -> (Ftype,[String])
+ebody _ pe ft acc [] = (ft,acc)
+ebody fn pe ft acc (x:xs)
+  | elNum x nmList > (-1) = let (nm,bd) = preFunc (fn!!(elNum x nmList))
+                                accInit = take (length acc - (length$fst$head bd)) acc
+                                accArg = drop (length acc - (length$fst$head bd)) acc
+                                rpl = pMatch (map fst bd) (map snd bd) accArg
+                             in ebody fn pe ft accInit (rpl++xs)
+  | length x > 1 = let cap = take 2 x
+                    in if cap=="まへ"
+                          then ebody fn pe ft acc ((words$fst$snd$getHa pe)++xs)
+                          else ebody fn pe (typeHa x) (acc++[arrStr (typeHa x) x]) xs
+  | acc==[] = ebody fn pe (typeHa x) (acc++[arrStr (typeHa x) x]) xs
+  | ((head x=='を') || (head x=='す')) && ft=="ratio"
+          = if (typeHa (tail x)=="ratio") 
+                then ebody fn pe ft ((init acc)++[arrStr ft ((last acc)++x)]) xs
+                else ebody fn pe (typeHa x) (acc++[arrStr (typeHa x) x]) xs
+  | (typeHa x=="ratio") && ft=="ratio" && ((last$last acc)=='を' || (last$last acc)=='す')
+          = ebody fn pe ft ((init acc)++[arrStr ft ((last acc)++x)]) xs
+  | otherwise = ebody fn pe ft (acc++[arrStr ft x]) xs
+  where nmList = map fst fn
+
+arrStr :: Ftype -> String -> String
+arrStr ft str = case ft of
+               "ratio" -> case (typeHa str) of
+                            "ratio" -> showRatio$osdToRatio str
+                            _       -> str
+               _       -> str
 
 elNum :: String -> [String] -> Int
 elNum = elNum' 0 where
@@ -483,32 +478,64 @@ elNum = elNum' 0 where
     | otherwise = elNum' (i+1) str xs 
 
 addFunc :: (Fname,Fbody) -> State -> State
-addFunc str st =
+addFunc (nm,bd) st =
   let nmList = map fst (_fn st)
-      fsr = fst str
-      eln = elNum fsr nmList
-  in if (elem fsr nmList)
-        then st {_fn = (take eln (_fn st))++[(fsr,snd str)]++(drop eln (_fn st))}
-        else st {_fn = (_fn st) ++ [(fsr,snd str)]}
+      eln = elNum nm nmList
+  in if eln > (-1) 
+        then st {_fn = (take eln (_fn st))++[(nm,bd)]++(drop eln (_fn st))}
+        else st {_fn = (_fn st) ++ [(nm,bd)]}
 
-preFunc :: (Fname,Fbody) -> ([String],[String])
+preFunc :: (Fname,Fbody) -> (Fname,[([String],[String])])
 preFunc (nm,bd) =
   let bds = words bd
-      eln = elNum "か" bds
-      arg = if eln>0 then take eln bds else []
-      exp = if eln>0 then drop (eln+1) bds else bds
-   in (nm:arg,exp)
+      spni = separate "に" bds
+      arg = if (elem "か" bds) then map (head.separate "か") spni 
+                                else [[]]
+      exp = map (last.separate "か") spni 
+   in (nm,(zip arg exp))
 
+separate :: String -> [String] -> [[String]]
+separate w wds = let eln = elNum w wds
+                     fs = if eln>0 then take eln wds else []
+                     sn = if eln>0 then drop (eln+1) wds else wds
+                  in if fs==[] then [wds]
+                               else fs:(separate w sn)
+
+
+  {--
 arrFunc :: [(Fname,Fbody)] -> [String] -> [String]
 arrFunc fn wds = foldl (\acc x -> 
   if elem x nmList
-     then let (fin,fout) = preFunc (fn!!(elNum x nmList)) 
-              accInit = take (length acc - length fout) acc
-              accArg = drop (length acc - length fout) acc
-           in accInit ++ rplArg (tail fin) fout accArg
+     then let (nm,bd) = preFunc (fn!!(elNum x nmList)) 
+              accInit = take (length acc - (length$fst$head bd)) acc
+              accArg = drop (length acc - (length$fst$head bd)) acc
+           in accInit ++ rplArg (fst$head bd) (snd$head$bd) accArg
      else acc ++ [x]
           ) [] wds
       where nmList = map fst fn 
+--}
+--
+
+pMatch :: [[String]] -> [[String]] -> [String] -> [String]
+pMatch = pMatch' 0 
+  where 
+    pMatch' 0 [[]] fb _ = head fb 
+    pMatch' _ [] _ _ = []
+    pMatch' i (x:xs) fb arg 
+      | foldl (\acc (a,b) -> if (typeHa a=="ratio" && typeHa b=="ratio" && not (a==b))
+                                then False else acc) True (zip x arg)
+        = foldl (\acc y -> acc 
+            ++ [snd$(foldl (\ac z ->
+                    (fst ac+1,concat$map (\p -> if p=="x" then (arg!!(fst ac)) else p) (words$sepWith z y))) (0,[]) x)] 
+                ) [] (fb!!i)
+      | otherwise = pMatch' (i+1) xs fb arg
+
+sepWith :: String -> String -> String
+sepWith wd str 
+  | length str >= length wd =if (take (length wd) str)==wd
+                                then " x "++(sepWith wd (drop (length wd) str)) 
+                                else [(head str)]++(sepWith wd (tail str))
+  | otherwise = str
 
 rplArg :: [String] -> [String] -> [String] -> [String]
 rplArg anm fnb arg = foldl (\acc x ->
