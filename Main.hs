@@ -501,21 +501,6 @@ separate w wds = let eln = elNum w wds
                   in if fs==[] then [wds]
                                else fs:(separate w sn)
 
-
-  {--
-arrFunc :: [(Fname,Fbody)] -> [String] -> [String]
-arrFunc fn wds = foldl (\acc x -> 
-  if elem x nmList
-     then let (nm,bd) = preFunc (fn!!(elNum x nmList)) 
-              accInit = take (length acc - (length$fst$head bd)) acc
-              accArg = drop (length acc - (length$fst$head bd)) acc
-           in accInit ++ rplArg (fst$head bd) (snd$head$bd) accArg
-     else acc ++ [x]
-          ) [] wds
-      where nmList = map fst fn 
---}
---
-
 pMatch :: [[String]] -> [[String]] -> [String] -> [String]
 pMatch = pMatch' 0 
   where 
