@@ -381,6 +381,19 @@ showRatio rt =
    in if (last$words rat)=="1" then numToOsd$head$words rat
                                else numToOsd$concat$words rat
 
+osdToRatio :: String -> Ratio Int 
+osdToRatio str = 
+  let strs = sepNumOp str
+   in foldl (\acc x -> acc+(fst (osdToNum x))%(snd (osdToNum x))) 0 strs
+
+sepNumOp :: String -> [String]
+sepNumOp str = foldl (\acc x ->
+      if x=='き' || acc==[] 
+          then acc++[[x]] else if x=='と'
+                then acc++[[]] else (init acc)++[(last acc)++[x]]
+                     ) [] str
+
+
 typeHa :: String -> String
 typeHa str
   | foldl (\acc x -> acc && (elem x (map snd numAndOsd))) True str = "ratio"
@@ -410,65 +423,6 @@ getHa str =
                                       ) (False,([],[])) wds 
    in if ((fst$snd res)==[]) then (0,([],[])) else (fst lng,(unwords$fst$snd res,snd$snd res))
 
-osdToRatio :: String -> Ratio Int 
-osdToRatio str = 
-  let strs = sepNumOp str
-   in foldl (\acc x -> acc+(fst (osdToNum x))%(snd (osdToNum x))) 0 strs
-
-sepNumOp :: String -> [String]
-sepNumOp str = foldl (\acc x ->
-      if x=='き' || acc==[] 
-          then acc++[[x]] else if x=='と'
-                then acc++[[]] else (init acc)++[(last acc)++[x]]
-                     ) [] str
-
-eval :: [(Fname,Fbody)] -> String -> (Ftype, String)
-eval fn str =
-  let tgt = fst$snd$getHa str
-      name = snd$snd$getHa str
-   in if (tgt==[])
-        then ([],"なし")
-        else
-          let wds = words tgt 
-              peval = take (length str - (fst$getHa str)) str
-              ebd = ebody fn peval "" [] wds
-              result = case (fst ebd) of
-                         "ratio" -> showRatio$foldl (\acc x -> acc+(osdToRatio x)) 0 (snd ebd)
-                         _       -> foldl (\acc x -> acc++" "++x) "" (snd ebd)
-          in case (fst ebd) of
-               "ratio" -> if (name==[]) then ("ratio",result)
-                                        else ("func ratio",name++" "++result)
-               _       -> if (name==[]) then (fst ebd,result)
-                                        else ("func "++(fst ebd),name++" "++result)
-
-ebody :: [(Fname,Fbody)] -> String -> Ftype ->  [String] -> [String] -> (Ftype,[String])
-ebody _ pe ft acc [] = (ft,acc)
-ebody fn pe ft acc (x:xs)
-  | elNum x nmList > (-1) = let (nm,bd) = preFunc (fn!!(elNum x nmList))
-                                accInit = take (length acc - (length$fst$head bd)) acc
-                                accArg = drop (length acc - (length$fst$head bd)) acc
-                                rpl = pMatch (map fst bd) (map snd bd) accArg
-                             in ebody fn pe ft accInit (rpl++xs)
-  | length x > 1 = let cap = take 2 x
-                    in if cap=="まへ"
-                          then ebody fn pe ft acc ((words$fst$snd$getHa pe)++xs)
-                          else ebody fn pe (typeHa x) (acc++[arrStr (typeHa x) x]) xs
-  | acc==[] = ebody fn pe (typeHa x) (acc++[arrStr (typeHa x) x]) xs
-  | ((head x=='を') || (head x=='す')) && ft=="ratio"
-          = if (typeHa (tail x)=="ratio") 
-                then ebody fn pe ft ((init acc)++[arrStr ft ((last acc)++x)]) xs
-                else ebody fn pe (typeHa x) (acc++[arrStr (typeHa x) x]) xs
-  | (typeHa x=="ratio") && ft=="ratio" && ((last$last acc)=='を' || (last$last acc)=='す')
-          = ebody fn pe ft ((init acc)++[arrStr ft ((last acc)++x)]) xs
-  | otherwise = ebody fn pe ft (acc++[arrStr ft x]) xs
-  where nmList = map fst fn
-
-arrStr :: Ftype -> String -> String
-arrStr ft str = case ft of
-               "ratio" -> case (typeHa str) of
-                            "ratio" -> showRatio$osdToRatio str
-                            _       -> str
-               _       -> str
 
 elNum :: String -> [String] -> Int
 elNum = elNum' 0 where
@@ -521,13 +475,55 @@ sepWith wd str
                                 then " x "++(sepWith wd (drop (length wd) str)) 
                                 else [(head str)]++(sepWith wd (tail str))
   | otherwise = str
+                           
+arrStr :: Ftype -> String -> String
+arrStr ft str = case ft of
+               "ratio" -> case (typeHa str) of
+                            "ratio" -> showRatio$osdToRatio str
+                            _       -> str
+               _       -> str
 
-rplArg :: [String] -> [String] -> [String] -> [String]
-rplArg anm fnb arg = foldl (\acc x ->
-  if elem x anm then acc ++ [arg!!(elNum x anm)]
-                else acc ++ [x]
-                           ) [] fnb
-  
+ebody :: [(Fname,Fbody)] -> String -> Ftype ->  [String] -> [String] -> (Ftype,[String])
+ebody _ pe ft acc [] = (ft,acc)
+ebody fn pe ft acc (x:xs)
+  | elNum x nmList > (-1) = let (nm,bd) = preFunc (fn!!(elNum x nmList))
+                                accInit = take (length acc - (length$fst$head bd)) acc
+                                accArg = drop (length acc - (length$fst$head bd)) acc
+                                rpl = pMatch (map fst bd) (map snd bd) accArg
+                             in ebody fn pe ft accInit (rpl++xs)
+  | length x > 1 = let cap = take 2 x
+                    in if cap=="まへ"
+                          then ebody fn pe ft acc ((words$fst$snd$getHa pe)++xs)
+                          else ebody fn pe (typeHa x) (acc++[arrStr (typeHa x) x]) xs
+  | acc==[] = ebody fn pe (typeHa x) (acc++[arrStr (typeHa x) x]) xs
+  | ((head x=='を') || (head x=='す')) && ft=="ratio"
+          = if (typeHa (tail x)=="ratio") 
+                then ebody fn pe ft ((init acc)++[arrStr ft ((last acc)++x)]) xs
+                else ebody fn pe (typeHa x) (acc++[arrStr (typeHa x) x]) xs
+  | (typeHa x=="ratio") && ft=="ratio" && ((last$last acc)=='を' || (last$last acc)=='す')
+          = ebody fn pe ft ((init acc)++[arrStr ft ((last acc)++x)]) xs
+  | otherwise = ebody fn pe ft (acc++[arrStr ft x]) xs
+  where nmList = map fst fn
+
+eval :: [(Fname,Fbody)] -> String -> (Ftype, String)
+eval fn str =
+  let tgt = fst$snd$getHa str
+      name = snd$snd$getHa str
+   in if (tgt==[])
+        then ([],"なし")
+        else
+          let wds = words tgt 
+              peval = take (length str - (fst$getHa str)) str
+              ebd = ebody fn peval "" [] wds
+              result = case (fst ebd) of
+                         "ratio" -> showRatio$foldl (\acc x -> acc+(osdToRatio x)) 0 (snd ebd)
+                         _       -> foldl (\acc x -> acc++" "++x) "" (snd ebd)
+          in case (fst ebd) of
+               "ratio" -> if (name==[]) then ("ratio",result)
+                                        else ("func ratio",name++" "++result)
+               _       -> if (name==[]) then (fst ebd,result)
+                                        else ("func "++(fst ebd),name++" "++result)
+
 
 loadPictures :: IO (Picture,[Maybe Picture])
 loadPictures = do
