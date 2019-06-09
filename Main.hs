@@ -31,6 +31,7 @@ data State = State
   , _tx :: String           -- text
   , _fn :: [(Fname,Fbody)]  -- functions (name, body)
   , _info :: String 
+  , _mes :: String
   , _key :: Key            
   , _ks :: KeyState
   , _mdf :: Modifiers
@@ -67,7 +68,7 @@ testText = "あきのたの かりほのいほの とまをあらみわがころ
 
 initState :: State
 initState = State {_x=0, _y=0, _by=bottomY, _lx=leftX, _sx=0, _md=0 
-                  , _tc=' ', _tx=testText, _fn=[], _info = "" 
+                  , _tc=' ', _tx=testText, _fn=[], _info = "", _mes = "" 
                   , _key = Char ' ', _ks = Up, _mdf = Modifiers{shift=Up,ctrl=Up,alt=Up}
                   ,_cfk = 0, hime=blank, osds=[Just blank]}
 
@@ -80,9 +81,11 @@ drawPic st =
       picDaku = makePicDaku numList line st
       status = translate (startX-shiftX*leftX) (startY-shiftY*(bottomY+3)) $
                   color green $ scale 0.3 0.3 $ text (_info st)
+      message = translate (startX-shiftX*leftX) (startY-shiftY*(bottomY+3)-22) $
+                  color white $ scale 0.1 0.1 $ text (_mes st)
       cursor = translate (startX-shiftX*_x st) (startY-shiftY*_y st+shiftY/2) $
                   color orange $ rectangleSolid 28 2
-   in pictures $ cursor:status:himeB:picOsds++picDaku
+   in pictures $ cursor:status:message:himeB:picOsds++picDaku
 
 lineStartX :: Float -> [[a]] -> [Float]
 lineStartX by list = foldl (\acc ls -> acc++[(last acc +
@@ -465,7 +468,7 @@ pMatch = pMatch' 0
                                 then False else acc) True (zip x arg)
         = foldl (\acc y -> acc 
             ++ [snd$(foldl (\ac z ->
-                    (fst ac+1,concat$map (\p -> if p=="x" then (arg!!(fst ac)) else p) (words$sepWith z y))) (0,[]) x)] 
+                    (fst ac+1,concat$map (\p -> if p=="x" then (arg!!(fst ac)) else p) (words$sepWith z (snd ac)))) (0,y) x)] 
                 ) [] (fb!!i)
       | otherwise = pMatch' (i+1) xs fb arg
 
@@ -483,26 +486,28 @@ arrStr ft str = case ft of
                             _       -> str
                _       -> str
 
-ebody :: [(Fname,Fbody)] -> String -> Ftype ->  [String] -> [String] -> (Ftype,[String])
-ebody _ pe ft acc [] = (ft,acc)
-ebody fn pe ft acc (x:xs)
+ebody :: [(Fname,Fbody)] -> String -> String -> Ftype ->  [String] -> [String] -> (Ftype,[String])
+ebody _ pe na ft acc [] = (ft,acc)
+ebody fn pe na ft acc (x:xs)
+  | (elNum x nmList > (-1)) && (na==x) = ebody fn pe na "txt" (acc++[x]) xs
   | elNum x nmList > (-1) = let (nm,bd) = preFunc (fn!!(elNum x nmList))
                                 accInit = take (length acc - (length$fst$head bd)) acc
                                 accArg = drop (length acc - (length$fst$head bd)) acc
-                                rpl = pMatch (map fst bd) (map snd bd) accArg
-                             in ebody fn pe ft accInit (rpl++xs)
-  | length x > 1 = let cap = take 2 x
-                    in if cap=="まへ"
-                          then ebody fn pe ft acc ((words$fst$snd$getHa pe)++xs)
-                          else ebody fn pe (typeHa x) (acc++[arrStr (typeHa x) x]) xs
-  | acc==[] = ebody fn pe (typeHa x) (acc++[arrStr (typeHa x) x]) xs
-  | ((head x=='を') || (head x=='す')) && ft=="ratio"
-          = if (typeHa (tail x)=="ratio") 
-                then ebody fn pe ft ((init acc)++[arrStr ft ((last acc)++x)]) xs
-                else ebody fn pe (typeHa x) (acc++[arrStr (typeHa x) x]) xs
-  | (typeHa x=="ratio") && ft=="ratio" && ((last$last acc)=='を' || (last$last acc)=='す')
-          = ebody fn pe ft ((init acc)++[arrStr ft ((last acc)++x)]) xs
-  | otherwise = ebody fn pe ft (acc++[arrStr ft x]) xs
+                                accArg' = map (\t -> if (typeHa t=="ratio") then showRatio$osdToRatio t
+                                                                            else t) accArg
+                                rpl = pMatch (map fst bd) (map snd bd) accArg'
+                             in ebody fn pe na ft accInit (rpl++xs)
+  | not (acc==[]) && ((head x=='を') || (head x=='す')) && ft=="ratio"
+          = if (typeHa x=="ratio") 
+                then ebody fn pe na ft ((init acc)++[(last acc)++x]) xs
+                else ebody fn pe na (typeHa x) (acc++[x]) xs
+  | not (acc==[]) && (typeHa x=="ratio") && ft=="ratio" && ((last$last acc)=='を' || (last$last acc)=='す')
+          = ebody fn pe na ft ((init acc)++[(last acc)++x]) xs
+  | length x > 1 && (take 2 x)=="まへ"
+          = ebody fn pe na ft acc ((words$fst$snd$getHa pe)++xs)
+  | acc==[] = ebody fn pe na (typeHa x) (acc++[x]) xs
+  | typeHa x=="txt" = ebody fn pe na "txt" (acc++[x]) xs
+  | otherwise = ebody fn pe na ft (acc++[x]) xs
   where nmList = map fst fn
 
 eval :: [(Fname,Fbody)] -> String -> (Ftype, String)
@@ -514,7 +519,7 @@ eval fn str =
         else
           let wds = words tgt 
               peval = take (length str - (fst$getHa str)) str
-              ebd = ebody fn peval "" [] wds
+              ebd = ebody fn peval name "" [] wds
               result = case (fst ebd) of
                          "ratio" -> showRatio$foldl (\acc x -> acc+(osdToRatio x)) 0 (snd ebd)
                          _       -> foldl (\acc x -> acc++" "++x) "" (snd ebd)
