@@ -479,35 +479,29 @@ sepWith wd str
                                 else [(head str)]++(sepWith wd (tail str))
   | otherwise = str
                            
-arrStr :: Ftype -> String -> String
-arrStr ft str = case ft of
-               "ratio" -> case (typeHa str) of
-                            "ratio" -> showRatio$osdToRatio str
-                            _       -> str
+arrStr :: String -> String
+arrStr str = case (typeHa str) of
+               "ratio" -> showRatio$osdToRatio str
                _       -> str
 
 ebody :: [(Fname,Fbody)] -> String -> String -> Ftype ->  [String] -> [String] -> (Ftype,[String])
 ebody _ pe na ft acc [] = (ft,acc)
 ebody fn pe na ft acc (x:xs)
-  | (elNum x nmList > (-1)) && (na==x) = ebody fn pe na "txt" (acc++[x]) xs
-  | elNum x nmList > (-1) = let (nm,bd) = preFunc (fn!!(elNum x nmList))
-                                accInit = take (length acc - (length$fst$head bd)) acc
-                                accArg = drop (length acc - (length$fst$head bd)) acc
-                                accArg' = map (\t -> if (typeHa t=="ratio") then showRatio$osdToRatio t
-                                                                            else t) accArg
-                                rpl = pMatch (map fst bd) (map snd bd) accArg'
-                             in ebody fn pe na ft accInit (rpl++xs)
-  | not (acc==[]) && ((head x=='を') || (head x=='す')) && ft=="ratio"
-          = if (typeHa x=="ratio") 
-                then ebody fn pe na ft ((init acc)++[(last acc)++x]) xs
-                else ebody fn pe na (typeHa x) (acc++[x]) xs
-  | not (acc==[]) && (typeHa x=="ratio") && ft=="ratio" && ((last$last acc)=='を' || (last$last acc)=='す')
-          = ebody fn pe na ft ((init acc)++[(last acc)++x]) xs
+  | elNum x nmList>(-1) && na==x = ebody fn pe na "txt" (acc++[x]) xs
+  | elNum x nmList > (-1)        = let (nm,bd) = preFunc (fn!!(elNum x nmList))
+                                       accInit = take (length acc - (length$fst$head bd)) acc
+                                       accArg  = drop (length acc - (length$fst$head bd)) acc
+                                       accArg' = map arrStr accArg
+                                       rpl     = pMatch (map fst bd) (map snd bd) accArg'
+                                    in ebody fn pe na ft accInit (rpl++xs)
+  | not (acc==[]) && (typeHa x=="ratio") && ft=="ratio"
+        && (((last$last acc)=='を' || (last$last acc)=='す') || ((head x=='を') || (head x=='す')))
+                                 = ebody fn pe na ft ((init acc)++[(last acc)++x]) xs
   | length x > 1 && (take 2 x)=="まへ"
-          = ebody fn pe na ft acc ((words$fst$snd$getHa pe)++xs)
-  | acc==[] = ebody fn pe na (typeHa x) (acc++[x]) xs
-  | typeHa x=="txt" = ebody fn pe na "txt" (acc++[x]) xs
-  | otherwise = ebody fn pe na ft (acc++[x]) xs
+                                 = ebody fn pe na ft acc ((words$fst$snd$getHa pe)++xs)
+  | acc==[]                      = ebody fn pe na (typeHa x) (acc++[x]) xs
+  | typeHa x=="txt"              = ebody fn pe na "txt" (acc++[x]) xs
+  | otherwise                    = ebody fn pe na ft (acc++[x]) xs
   where nmList = map fst fn
 
 eval :: [(Fname,Fbody)] -> String -> (Ftype, String)
