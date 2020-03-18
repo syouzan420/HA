@@ -5,28 +5,31 @@ import Graphics.Gloss.Juicy
 import Graphics.Gloss.Interface.IO.Game
 import Data.Ratio
 
-type Lineinfo = (Int,(Float,Float))
-type Position = (Int,Int)
-type Fname = String
-type Fbody = String
-type Ftype = String
+type CurX = Int; type CurY = Int; type BtY = Int; type LineNum = Int
+type PosInLine = Int; type SpAftLine = Int
+type Position = (PosInLine,SpAftLine)
+type Lineinfo = (LineNum,(Int,Int))
+type Fname = String; type Fbody = String; type Ftype = String
 
-startX, startY, bottomY, leftX, shiftX, shiftY, fScale :: Float 
+startX, startY, fScale :: Float
 startX = 250 
 startY = 250 
+fScale = 1 
+
+bottomY, leftX, shiftX, shiftY :: Int 
 bottomY = 19 
 leftX = 17 
 shiftX = 30
 shiftY = 24
-fScale = 1 
 
 data State = State
-  { _x :: Float             -- cursor X
-  , _y :: Float             -- cursor Y
-  , _by :: Float            -- bottom Y 
-  , _lx :: Float            -- left X
-  , _sx :: Float            -- scroll X
+  { _x :: Int             -- cursor X
+  , _y :: Int             -- cursor Y
+  , _by :: Int            -- bottom Y 
+  , _lx :: Int            -- left X
+  , _sx :: Int            -- scroll X
   , _md :: Int              -- input mode (0:normal 1:insert 2:insert2)
+  , _em :: Bool          -- true: evaluate in Arabic Numerals, false: evaluate in Oside
   , _tc :: Char             -- temporary stored character
   , _tx :: String           -- text
   , _fn :: [(Fname,Fbody)]  -- functions (name, body)
@@ -40,26 +43,6 @@ data State = State
   , osds :: [Maybe Picture]
   }
 
-osdAndNum :: [(Char,Int)]
-osdAndNum = [('あ',0),('い',1),('う',2),('え',3),('お',4),('か',15),('き',19),('く',23),('け',27),('こ',31)
-            ,('さ',55),('し',51),('す',46),('せ',42),('そ',37),('た',53),('ち',49),('つ',44),('て',40),('と',35)
-            ,('な',17),('に',21),('ぬ',25),('ね',29),('の',33),('は',16),('ひ',20),('ふ',24),('へ',28),('ほ',32)
-            ,('ま',18),('み',22),('む',26),('め',30),('も',34),('や',56),('ゐ',52),('ゆ',47),('ゑ',43),('よ',38)
-            ,('ら',54),('り',50),('る',45),('れ',41),('ろ',36),('わ',57),('を',39),('ん',48),(' ',14)
-            ,('が',(-15)),('ぎ',(-19)),('ぐ',(-23)),('げ',(-27)),('ご',(-31))
-            ,('ざ',(-55)),('じ',(-51)),('ず',(-46)),('ぜ',(-42)),('ぞ',(-37))
-            ,('だ',(-53)),('ぢ',(-49)),('づ',(-44)),('で',(-40)),('ど',(-35))
-            ,('ば',(-16)),('び',(-20)),('ぶ',(-24)),('べ',(-28)),('ぼ',(-32))]
-
-getSecond :: (Eq a,Num b) => [(a,b)] -> a -> b
-getSecond [] _ = 999
-getSecond (x:xs) y
-  | fst x==y  = snd x
-  | otherwise = getSecond xs y
-
-converter :: Char -> Int
-converter = getSecond osdAndNum
-
 window :: Display
 window = InWindow "は" (640,640) (100,0)
 
@@ -67,7 +50,7 @@ testText :: String
 testText = "あきのたの かりほのいほの とまをあらみわがころもでは つゆにぬれつつ\nきみがよは ちよにやちよに さざれいしのいはをとなりて こけのむすまで\n\nあかはなま いきひにみうく"
 
 initState :: State
-initState = State {_x=0, _y=0, _by=bottomY, _lx=leftX, _sx=0, _md=0 
+initState = State {_x=0, _y=0, _by=bottomY, _lx=leftX, _sx=0, _md=0, _em=False 
                   , _tc=' ', _tx=testText, _fn=[], _info = "", _mes = "" 
                   , _key = Char ' ', _ks = Up, _mdf = Modifiers{shift=Up,ctrl=Up,alt=Up}
                   ,_cfk = 0, hime=blank, osds=[Just blank]}
@@ -79,33 +62,39 @@ drawPic st =
       line = lineStartX (_by st) numList
       picOsds = makePicOsds numList line st
       picDaku = makePicDaku numList line st
-      status = translate (startX-shiftX*leftX) (startY-shiftY*(bottomY+3)) $
-                  color green $ scale 0.3 0.3 $ text (_info st)
-      message = translate (startX-shiftX*leftX) (startY-shiftY*(bottomY+3)-22) $
+      status = translate (startX- fromIntegral (shiftX*leftX))
+                         (startY- fromIntegral (shiftY*(bottomY+3))) $
+                  color green $ scale 0.2 0.2 $ text (_info st)
+      message = translate (startX- fromIntegral (shiftX*leftX))
+                          (startY- fromIntegral (shiftY*(bottomY+3)-22)) $
                   color white $ scale 0.1 0.1 $ text (_mes st)
-      cursor = translate (startX-shiftX*_x st) (startY-shiftY*_y st+shiftY/2) $
+      cursor = translate (startX- fromIntegral (shiftX*_x st))
+                         (startY- (fromIntegral (shiftY*_y st))+ (fromIntegral shiftY)/2) $
                   color orange $ rectangleSolid 28 2
    in pictures $ cursor:status:message:himeB:picOsds++picDaku
 
-lineStartX :: Float -> [[a]] -> [Float]
+lineStartX :: BtY -> [[a]] -> [LineNum]
 lineStartX by list = foldl (\acc ls -> acc++[(last acc +
-              (if (length ls>0) then fromIntegral
-                    (ceiling $ (fromIntegral (length ls))/(by+1))
+              (if (length ls>0) then (ceiling $ (fromIntegral (length ls))/(fromIntegral (by+1)))
                                 else 1))]) [0] list 
 
-makePicOsds :: [[Int]] -> [Float] -> State -> [Picture]
+makePicOsds :: [[Int]] -> [LineNum] -> State -> [Picture]
 makePicOsds numList line st = 
   let txOsds = map (\ls -> map ((!!) (osds st)) (map abs ls)) numList
    in concat $ zipWith (\txos ln -> zipWith (\(Just t) (x,y) ->
-        translate (startX-shiftX*x) (startY-shiftY*y) $ scale fScale fScale $ t)
+        let shX = fromIntegral (shiftX*x)
+            shY = fromIntegral (shiftY*y)
+        in translate (startX-shX) (startY-shY) $ scale fScale fScale $ t)
                       txos [(a,b)|a<-[(ln-_sx st)..],b<-[0..(_by st)]]) txOsds line
 
-makePicDaku :: [[Int]] -> [Float] -> State -> [Picture]
+makePicDaku :: [[Int]] -> [LineNum] -> State -> [Picture]
 makePicDaku numList line st =
   let Just daku = osds st !! 58
    in concat $ zipWith (\nml ln -> zipWith (\t (x,y) -> 
-        if(t<0) then translate (startX-shiftX*x) (startY-shiftY*y) $ scale fScale fScale $ daku
-                else blank
+        let shX = fromIntegral (shiftX*x)
+            shY = fromIntegral (shiftY*y)
+        in if(t<0) then translate (startX-shX) (startY-shY) $ scale fScale fScale $ daku
+                   else blank
                         ) nml [(a,b)|a<-[(ln-_sx st)..],b<-[0..(_by st)]]) numList line
 
 updateState :: Event -> State -> State
@@ -121,7 +110,8 @@ nextPic _ st =
                   else 0
       mode = if(_md st==0) then "normal" else "insert"
       keyn = keyName (_key st)
-      st' = st{_cfk=newCfk, _info="mode: "++mode++"  key: "++keyn}
+      evmd = if(_em st==True) then "T" else "F"
+      st' = st{_cfk=newCfk, _info="mode: "++mode++"  key: "++keyn++"  evmode: "++evmd}
   in if(_cfk st<0)
         then keyEvent (_key st) (_ks st) (_mdf st) st'
         else st'
@@ -129,7 +119,6 @@ nextPic _ st =
                 keyName (SpecialKey k) = show k
                 keyName _ = []
          
-
 up, down, right, left :: State -> State
 up    st = if(_y st > 0) then st { _y = _y st - 1} 
                          else if (_x st>0) then st { _x = _x st - 1, _y = _by st}
@@ -141,61 +130,44 @@ left  st = if(_x st < _lx st) then st { _x = _x st + 1} else st { _sx = _sx st +
 modeC :: Char -> State -> State
 modeC ch st = st {_md = 2, _tc = ch}
 
+kanas :: String
+kanas = "あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゐゆゑよらりるれろがぎぐげござじずぜぞだぢづでどばびぶべぼわをん 0123456789"
+
+osdNum :: [Int]
+osdNum = [0,1,2,3,4,15,19,23,27,31,55,51,46,42,37,53,49,44,40,35,17,21,25,29,33,16,20,24,28,32,18,22,26,30,34,56,52,47,43,38,54,50,45,41,36,57,39,48,14,60,61,62,63,64,65,66,67,68,69] 
+
+getIndex :: (Eq a) => a -> [a] -> Int
+getIndex = getIndex' 0 where
+  getIndex' _ _ [] = (-1)
+  getIndex' i el (x:xs)
+    | el==x = i
+    | otherwise = getIndex' (i+1) el xs
+
+converter :: Char -> Int 
+converter ch  
+  | elem ch kanas =
+      case (getIndex ch kanas) of
+         x  | x>44 && x<60 -> (-(osdNum !! (x-40)))
+            | x>59 && x<65 -> (-(osdNum !! (x-35)))
+            | x>64         -> osdNum !! (x-20)
+            | otherwise    -> osdNum !! x
+  | otherwise    = 14
+
+varToNum :: Char -> Int
+varToNum ch 
+  | elem ch "aiueon" = case (getIndex ch "aiueon") of x -> x
+  | otherwise        = (-1)
+
 mkTxt :: Char -> State -> State
-mkTxt v st = case (_tc st) of
-  'k' -> case v of
-        'a' -> addTxt 'か' st; 'i' -> addTxt 'き' st; 'u' -> addTxt 'く' st
-        'e' -> addTxt 'け' st; 'o' -> addTxt 'こ' st
-        _   -> st
-  'h' -> case v of
-        'a' -> addTxt 'は' st; 'i' -> addTxt 'ひ' st; 'u' -> addTxt 'ふ' st
-        'e' -> addTxt 'へ' st; 'o' -> addTxt 'ほ' st
-        _   -> st
-  'n' -> case v of
-        'a' -> addTxt 'な' st; 'i' -> addTxt 'に' st; 'u' -> addTxt 'ぬ' st
-        'e' -> addTxt 'ね' st; 'o' -> addTxt 'の' st; 'n' -> addTxt 'ん' st
-        _   -> st
-  'm' -> case v of
-        'a' -> addTxt 'ま' st; 'i' -> addTxt 'み' st; 'u' -> addTxt 'む' st
-        'e' -> addTxt 'め' st; 'o' -> addTxt 'も' st
-        _   -> st
-  't' -> case v of
-        'a' -> addTxt 'た' st; 'i' -> addTxt 'ち' st; 'u' -> addTxt 'つ' st
-        'e' -> addTxt 'て' st; 'o' -> addTxt 'と' st
-        _   -> st
-  'l' -> case v of
-        'a' -> addTxt 'ら' st; 'i' -> addTxt 'り' st; 'u' -> addTxt 'る' st
-        'e' -> addTxt 'れ' st; 'o' -> addTxt 'ろ' st
-        _   -> st
-  's' -> case v of
-        'a' -> addTxt 'さ' st; 'i' -> addTxt 'し' st; 'u' -> addTxt 'す' st
-        'e' -> addTxt 'せ' st; 'o' -> addTxt 'そ' st
-        _   -> st
-  'y' -> case v of
-        'a' -> addTxt 'や' st; 'i' -> addTxt 'ゐ' st; 'u' -> addTxt 'ゆ' st
-        'e' -> addTxt 'ゑ' st; 'o' -> addTxt 'よ' st
-        _   -> st
-  'w' -> case v of
-        'a' -> addTxt 'わ' st; 'i' -> addTxt 'ゐ' st; 'u' -> addTxt 'う' st
-        'e' -> addTxt 'ゑ' st; 'o' -> addTxt 'を' st
-        _   -> st
-  'g' -> case v of
-        'a' -> addTxt 'が' st; 'i' -> addTxt 'ぎ' st; 'u' -> addTxt 'ぐ' st
-        'e' -> addTxt 'げ' st; 'o' -> addTxt 'ご' st
-        _   -> st
-  'b' -> case v of
-        'a' -> addTxt 'ば' st; 'i' -> addTxt 'び' st; 'u' -> addTxt 'ぶ' st
-        'e' -> addTxt 'べ' st; 'o' -> addTxt 'ぼ' st
-        _   -> st
-  'd' -> case v of
-        'a' -> addTxt 'だ' st; 'i' -> addTxt 'ぢ' st; 'u' -> addTxt 'づ' st
-        'e' -> addTxt 'で' st; 'o' -> addTxt 'ど' st
-        _   -> st
-  'z' -> case v of
-        'a' -> addTxt 'ざ' st; 'i' -> addTxt 'じ' st; 'u' -> addTxt 'ず' st
-        'e' -> addTxt 'ぜ' st; 'o' -> addTxt 'ぞ' st
-        _   -> st
-  _   -> st
+mkTxt v st = addTxt ch st
+  where nv = varToNum v
+        ch
+          |(_tc st) == 'w'              = case nv of
+                           0 -> 'わ'; 1 -> 'ゐ'; 2 -> 'う'; 3 -> 'ゑ'; 4 -> 'を'; (-1) -> 'ぷ'
+          |(_tc st) == 'n' && nv == 5   = 'ん'
+          |elem (_tc st) "kstnhmylgzdb" = case (getIndex (_tc st) "kstnhmylgzdb") of
+                                            x -> if (nv<5) then kanas !! (5+5*x+nv) else 'ぷ'
+          |otherwise                    = 'ぷ'
 
 keyEvent :: Key -> KeyState -> Modifiers -> State -> State
 keyEvent key ks mdf st 
@@ -208,19 +180,19 @@ keyEvent key ks mdf st
         Char 'j' -> down  st; Char 'k' -> up    st
         Char 'h' -> left  st; Char 'l' -> right st
         Char 'i' -> st {_md = 1}
+        Char 'm' -> if _em st == True then st {_em = False} else st {_em = True}
         Char 'e' -> evalTxt st
         Char 'x' -> delTxt st
         _        -> st
   | _md st==1 && ks==Down =
-      case key of
-        Char 'a' -> addTxt 'あ' st; Char 'i' -> addTxt 'い' st
-        Char 'u' -> addTxt 'う' st; Char 'e' -> addTxt 'え' st
-        Char 'o' -> addTxt 'お' st; 
-        Char 'k' -> modeC 'k' st; Char 'h' -> modeC 'h' st; Char 'f' -> modeC 'h' st
-        Char 'n' -> modeC 'n' st; Char 'm' -> modeC 'm' st; Char 't' -> modeC 't' st
-        Char 'r' -> modeC 'l' st; Char 'l' -> modeC 'l' st; Char 's' -> modeC 's' st
-        Char 'y' -> modeC 'y' st; Char 'w' -> modeC 'w' st; Char 'g' -> modeC 'g' st
-        Char 'b' -> modeC 'b' st; Char 'd' -> modeC 'd' st; Char 'z' -> modeC 'z' st
+      case key of 
+        Char x
+          | x `elem` "aiueo" -> case (getIndex x "aiueo") of 
+                                            y -> addTxt ("あいうえお" !! y) st
+          | x `elem` "0123456789" -> case (getIndex x "0123456789") of
+                                            y -> addTxt ("0123456789" !! y) st
+          | x `elem` "khfnmtrlsywgbdz" -> case (getIndex x "khfnmtrlsywgbdz") of
+                                            y -> modeC ("khhnmtllsywgbdz" !! y) st
         Char '\b' -> delTxt st
         Char '\^O' -> st {_md = 0}
         SpecialKey KeyEnter -> addTxt '\n' st
@@ -230,9 +202,8 @@ keyEvent key ks mdf st
         _        -> st
   | _md st==2 && ks==Down =
       case key of
-        Char 'a' -> mkTxt 'a' st; Char 'i' -> mkTxt 'i' st
-        Char 'u' -> mkTxt 'u' st; Char 'e' -> mkTxt 'e' st
-        Char 'o' -> mkTxt 'o' st; Char 'n' -> mkTxt 'n' st
+        Char x
+          | x `elem` "aiueon" -> mkTxt x st
         Char '\^O' -> st {_md = 0}
         SpecialKey KeyEnter -> addTxt '\n' st
         SpecialKey KeySpace -> addTxt ' ' st
@@ -241,7 +212,8 @@ keyEvent key ks mdf st
   | otherwise = st
 
 addTxt :: Char -> State -> State
-addTxt ch st = 
+addTxt 'ぷ' st = st
+addTxt ch st   = 
   let txs = lines (_tx st) 
       lns = lineStartX (_by st) txs 
       (lnInfo,txPos) = curToTxt st
@@ -254,11 +226,11 @@ addTxt ch st =
               newLn = (take ltNum ln)++sp++[ch]++(drop ltNum ln) 
            in (take lnNum txs)++[newLn]++(drop (lnNum+1) txs)
         else
-          let blankLines = take (round (_x st + _sx st - (last lns))) (repeat [])
-              sp = take (round (_y st)) (repeat ' ')
+          let blankLines = take (_x st + _sx st - (last lns)) (repeat [])
+              sp = take (_y st) (repeat ' ')
            in txs++blankLines++[sp++[ch]]
       (nx,ny,nsx)= if (ch=='\n') then if (_x st<_lx st) then (_x st+1,0,_sx st)
-                                                    else (_x st,0,_sx st+1)
+                                                        else (_x st,0,_sx st+1)
                              else if (_y st)>(_by st)
                                     then if (_x st<_lx st) then (_x st+1,1,_sx st) 
                                                            else (_x st,1,_sx st+1)
@@ -301,20 +273,23 @@ evalTxt st =
               ltNum = fst txPos
               newLn = (take ltNum ln)
                 ++(if (elem 'た' (drop ltNum ln))
-                    then snd $ foldl (\acc x -> if (fst acc && x=='た')
-                           then (False,snd acc++[x]) else if fst acc
-                              then (True,snd acc++[x]) else (False,snd acc)
-                               ) (True,[]) (drop ltNum ln)
+                    then snd $ foldl (\acc x -> case () of
+                          _ | fst acc && x=='た' -> (False,snd acc++[x])
+                            | fst acc            -> (True,snd acc++[x])
+                          otherwise              -> (False,snd acc)
+                                     ) (True,[]) (drop ltNum ln)
                     else [])
            in unlines $ (take lnNum txs)++[newLn]
         else
            _tx st 
-      (typ,str) = eval (_fn st) newTx
+      (typ,str) = eval (_fn st) (_em st) newTx
       rst = if (length$words str)<3
                then str else head$words str
   in (foldl (\acc x -> addTxt x acc) st rst) 
-        {_md=0, _fn=if (head$words typ)=="func"
-                       then _fn (addFunc (head$words str,unwords$tail$words str) st)
+        {_md=0, _fn=if (length (words typ) > 0)
+                       then if (head$words typ)=="func"
+                              then _fn (addFunc (head$words str,unwords$tail$words str) st)
+                              else _fn st
                        else _fn st
         }
 
@@ -327,36 +302,41 @@ curToTxt st =
   in  if lnNum>(-1)
         then
           let ln = txs !! lnNum
-              txPos = getPosition (_by st) (_x st+_sx st) (_y st)
-                  (fst$snd lnInfo) (snd$snd lnInfo) ln 
+              txPos = getPosition (_by st) (_x st+_sx st) (_y st) lnInfo ln 
            in (lnInfo,txPos) 
         else (lnInfo,(0,0)) 
 
-
-getLn :: Float -> [Float] -> Lineinfo 
+getLn :: LineNum -> [LineNum] -> Lineinfo 
 getLn = getLn' 0 where 
   getLn' _ _ (y:[]) = ((-1),(y,y+1))
   getLn' i x (y:z:ys) =
      if (x>=y && x<z) then (i,(y,z))
                       else getLn' (i+1) x (z:ys)
 
-getPosition :: Float -> Float -> Float -> Float -> Float -> [a] -> Position 
-getPosition by x y x0 x1 ls =
-  let lastLetters = fromIntegral (length ls) - (by+1)*(x-x0) 
-   in if (x==(x1-1)) && lastLetters<y
-          then (length ls,round (y-lastLetters))
-          else (round ((by+1)*(x-x0)+y),0)
-
+getPosition :: BtY -> CurX -> CurY -> Lineinfo -> String -> (PosInLine,SpAftLine)
+getPosition by x y lni ls =
+  let lastLetters = (length ls) - (by+1)*(x-x0) 
+   in if (x==x1-1) && lastLetters<y
+          then (length ls,y-lastLetters)
+          else ((by+1)*(x-x0)+y,0)
+  where x0 = fst$snd lni
+        x1 = snd$snd lni
 
 numAndOsd :: [(Char,Char)]
 numAndOsd = [('1','ひ'),('2','ふ'),('3','み'),('4','よ'),('5','ゐ'),('6','む'),
              ('7','な'),('8','や'),('9','こ'),('0','ろ'),('-','き'),('+','と'),('*','を'),('%','す')]
 
 osdToInt :: String -> Int
-osdToInt wd =
-  read $ map (\c -> foldl (\acc s ->
-                if (snd s==c) then (fst s) else acc) ' ' numAndOsd 
-             ) wd 
+osdToInt wd = read $
+  map (\c -> foldl (\acc (n,o) -> if (c `elem` "0123456789")
+                                     then c
+                                     else if (o==c) then n else acc) ' ' numAndOsd ) wd 
+  
+numToOsd :: Bool -> String -> String
+numToOsd evm wd =
+  map (\c -> foldl (\acc (n,o) -> if(evm==True && c `elem` "0123456789")
+                                     then c
+                                     else if (n==c) then o else acc) ' ' numAndOsd ) wd 
 
 osdToNum :: String -> (Int,Int)
 osdToNum wd =
@@ -372,72 +352,50 @@ osdToNum wd =
       den = foldl (\acc x -> acc * osdToInt x) 1 (words denTxt)
    in (num,den) 
 
-numToOsd :: String -> String
-numToOsd str =
-  map (\c -> foldl (\acc s ->
-              if (fst s==c) then (snd s) else acc) ' ' numAndOsd 
-      ) str 
-
-showRatio :: Ratio Int -> String
-showRatio rt =
-  let rat = show rt
-   in if (last$words rat)=="1" then numToOsd$head$words rat
-                               else numToOsd$concat$words rat
+showRatio :: Bool -> Ratio Int -> String
+showRatio evm rt = let rat = show rt in
+  if (last$words rat)=="1" then numToOsd evm$head$words rat
+                               else numToOsd evm$concat$words rat
 
 osdToRatio :: String -> Ratio Int 
-osdToRatio str = 
-  let strs = sepNumOp str
-   in foldl (\acc x -> acc+(fst (osdToNum x))%(snd (osdToNum x))) 0 strs
+osdToRatio str = let strs = sepNumOp str in
+  foldl (\acc x -> acc+(fst (osdToNum x))%(snd (osdToNum x))) 0 strs
 
 sepNumOp :: String -> [String]
 sepNumOp str = foldl (\acc x ->
-      if x=='き' || acc==[] 
-          then acc++[[x]] else if x=='と'
+      if x=='き' || acc==[] then acc++[[x]] else if x=='と'
                 then acc++[[]] else (init acc)++[(last acc)++[x]]
                      ) [] str
 
 
 typeHa :: String -> String
 typeHa str
-  | foldl (\acc x -> acc && (elem x (map snd numAndOsd))) True str = "ratio"
+  | foldl (\acc x -> acc && (elem x ((map snd numAndOsd)++"0123456789"))) True str = "ratio"
   | otherwise = "txt"
 
 getHa :: String -> (Int,(Fbody,Fname))
 getHa str =
-  let wds = words str
-      lng = foldr (\x acc ->
-              if (x=='は' && (snd acc)==' ')
-                 then (fst acc+1,'x')
-                 else if (snd acc=='x')
-                        then if (x==' ')
-                                then (fst acc+1,'y')
-                                else (fst acc+1,'x')
-                        else if(snd acc=='y')
-                                then (fst acc,'y')
-                                else (fst acc+1,x)
+  let wds = if (str=="") then [] 
+                         else words $ last $ lines str
+      lng = foldr (\x acc -> case () of
+              _ |x=='は' && (snd acc)==' ' -> (fst acc+1,'x')
+                |snd acc=='x'              -> if (x==' ') then(fst acc+1,'y')
+                                                          else (fst acc+1,'x')
+                |snd acc=='y'              -> (fst acc,'y')
+              otherwise                    -> (fst acc+1,x)
                   ) (0,'s') str
-      res = foldr (\x acc ->
-               if (fst$snd acc)==[] && x=="た"
-                 then (True,([],[])) else if fst acc
-                        then if last x=='は' 
-                                then (False,(fst$snd acc,init x)) 
-                                else (True,(x:(fst$snd acc),[]))
-                        else (False,(fst$snd acc,snd$snd acc))
-                                      ) (False,([],[])) wds 
+      res = foldr (\x acc -> case () of
+              _ |fst acc                      -> if last x=='は' 
+                                            then (False,(fst$snd acc,init x)) 
+                                            else (True,(x:(fst$snd acc),[]))
+              otherwise                       -> (False,(fst$snd acc,snd$snd acc))
+                  ) (True,([],[])) wds 
    in if ((fst$snd res)==[]) then (0,([],[])) else (fst lng,(unwords$fst$snd res,snd$snd res))
-
-
-elNum :: String -> [String] -> Int
-elNum = elNum' 0 where
-  elNum' _ _ [] = (-1) 
-  elNum' i str (x:xs)
-    | str==x = i
-    | otherwise = elNum' (i+1) str xs 
 
 addFunc :: (Fname,Fbody) -> State -> State
 addFunc (nm,bd) st =
   let nmList = map fst (_fn st)
-      eln = elNum nm nmList
+      eln = getIndex nm nmList
   in if eln > (-1) 
         then st {_fn = (take eln (_fn st))++[(nm,bd)]++(drop eln (_fn st))}
         else st {_fn = (_fn st) ++ [(nm,bd)]}
@@ -452,7 +410,7 @@ preFunc (nm,bd) =
    in (nm,(zip arg exp))
 
 separate :: String -> [String] -> [[String]]
-separate w wds = let eln = elNum w wds
+separate w wds = let eln = getIndex w wds
                      fs = if eln>0 then take eln wds else []
                      sn = if eln>0 then drop (eln+1) wds else wds
                   in if fs==[] then [wds]
@@ -481,41 +439,39 @@ sepWith wd str
                            
 arrStr :: String -> String
 arrStr str = case (typeHa str) of
-               "ratio" -> showRatio$osdToRatio str
+               "ratio" -> showRatio False$osdToRatio str
                _       -> str
 
 ebody :: [(Fname,Fbody)] -> String -> String -> Ftype ->  [String] -> [String] -> (Ftype,[String])
 ebody _ pe na ft acc [] = (ft,acc)
 ebody fn pe na ft acc (x:xs)
-  | elNum x nmList>(-1) && na==x = ebody fn pe na "txt" (acc++[x]) xs
-  | elNum x nmList > (-1)        = let (nm,bd) = preFunc (fn!!(elNum x nmList))
-                                       accInit = take (length acc - (length$fst$head bd)) acc
-                                       accArg  = drop (length acc - (length$fst$head bd)) acc
-                                       accArg' = map arrStr accArg
-                                       rpl     = pMatch (map fst bd) (map snd bd) accArg'
-                                    in ebody fn pe na ft accInit (rpl++xs)
+  | getIndex x nmList>(-1) && na==x = ebody fn pe na "txt" (acc++[x]) xs
+  | getIndex x nmList>(-1)          = let (nm,bd) = preFunc (fn!!(getIndex x nmList))
+                                          accInit = take (length acc - (length$fst$head bd)) acc
+                                          accArg  = drop (length acc - (length$fst$head bd)) acc
+                                          accArg' = map arrStr accArg
+                                          rpl     = pMatch (map fst bd) (map snd bd) accArg'
+                                      in ebody fn pe na ft accInit (rpl++xs)
   | not (acc==[]) && (typeHa x=="ratio") && ft=="ratio"
         && (((last$last acc)=='を' || (last$last acc)=='す') || ((head x=='を') || (head x=='す')))
                                  = ebody fn pe na ft ((init acc)++[(last acc)++x]) xs
-  | length x > 1 && (take 2 x)=="まへ"
-                                 = ebody fn pe na ft acc ((words$fst$snd$getHa pe)++xs)
   | acc==[]                      = ebody fn pe na (typeHa x) (acc++[x]) xs
   | typeHa x=="txt"              = ebody fn pe na "txt" (acc++[x]) xs
   | otherwise                    = ebody fn pe na ft (acc++[x]) xs
   where nmList = map fst fn
 
-eval :: [(Fname,Fbody)] -> String -> (Ftype, String)
-eval fn str =
+eval :: [(Fname,Fbody)] -> Bool -> String -> (Ftype, String)
+eval fn evm str =
   let tgt = fst$snd$getHa str
       name = snd$snd$getHa str
    in if (tgt==[])
         then ([],"なし")
         else
           let wds = words tgt 
-              peval = take (length str - (fst$getHa str)) str
+              peval = str
               ebd = ebody fn peval name "" [] wds
               result = case (fst ebd) of
-                         "ratio" -> showRatio$foldl (\acc x -> acc+(osdToRatio x)) 0 (snd ebd)
+                         "ratio" -> showRatio evm$foldl (\acc x -> acc+(osdToRatio x)) 0 (snd ebd)
                          _       -> foldl (\acc x -> acc++" "++x) "" (snd ebd)
           in case (fst ebd) of
                "ratio" -> if (name==[]) then ("ratio",result)
@@ -527,7 +483,7 @@ eval fn str =
 loadPictures :: IO (Picture,[Maybe Picture])
 loadPictures = do
   Just hime <- loadJuicy "img/hime.png"
-  osds <- mapM (\x -> do y <- x;return y) (loadOsds 58)
+  osds <- mapM (\x -> do y <- x;return y) (loadOsds 69)
   return (hime,osds) 
 
 loadOsds :: Int -> [IO (Maybe Picture)]
